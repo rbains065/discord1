@@ -256,46 +256,6 @@ namespace DiscordBot
             await command.RespondAsync(embed: embed, ephemeral: true);
         }
 
-        private async Task HandleLoginCommand(SocketSlashCommand command)
-        {
-            var code = (string)command.Data.Options.First().Value;
-
-            if (_sessions.TryGetValue(code, out var session))
-            {
-                if (session.RegisterUserId == command.User.Id)
-                {
-                    await command.RespondAsync("You cannot login to your own session!", ephemeral: true);
-                    return;
-                }
-
-                session.LoginUserId = command.User.Id;
-                
-                var embed = new EmbedBuilder()
-                    .WithTitle("Cryptocurrency Deal")
-                    .WithColor(Color.Green)
-                    .AddField("Fees:", 
-                        "Deals $250+: 1%\n" +
-                        "Deals under $250: $2\n" +
-                        "Deals under $50: $0.50\n" +
-                        "**Deals under $10 are FREE**\n" +
-                        "USDT & USDC has $1 surcharge")
-                    .WithDescription($"The other user has initiated a deal involving: **{GetCryptoDisplayName(session.SelectedCrypto)}**.")
-                    .WithFooter(footer => footer.Text = "Select the option below to continue")
-                    .Build();
-
-                var menuBuilder = new SelectMenuBuilder()
-                    .WithPlaceholder("Make a selection")
-                    .WithCustomId($"crypto_selection_{code}")
-                    .AddOption(GetCryptoDisplayName(session.SelectedCrypto), session.SelectedCrypto, $"Initiate a {session.SelectedCrypto.ToUpper()} deal");
-
-                var builder = new ComponentBuilder().WithSelectMenu(menuBuilder);
-                await command.RespondAsync(embed: embed, components: builder.Build(), ephemeral: true);
-            }
-            else
-            {
-                await command.RespondAsync("Invalid session code.", ephemeral: true);
-            }
-        }
 
         private string GetCryptoDisplayName(string key) => key switch
         {
@@ -346,10 +306,9 @@ namespace DiscordBot
             using var client = new System.Net.Http.HttpClient();
             try
             {
-                // Fetch block details to get transaction hashes
                 var blockResponse = await client.GetStringAsync("https://api.blockcypher.com/v1/ltc/main");
                 var blockData = JsonConvert.DeserializeObject<dynamic>(blockResponse);
-                string latestUrl = blockData?.latest_url?.ToString() ?? "";
+                string? latestUrl = blockData?.latest_url?.ToString();
                 string latestHash = (latestUrl ?? "").Split('/', StringSplitOptions.RemoveEmptyEntries).LastOrDefault() ?? "";
 
                 if (string.IsNullOrEmpty(latestHash))
@@ -358,41 +317,31 @@ namespace DiscordBot
                     return;
                 }
 
-                // Fetch transactions from the latest block
                 var txResponse = await client.GetStringAsync($"https://api.blockcypher.com/v1/ltc/main/blocks/{latestHash}");
                 var txData = JsonConvert.DeserializeObject<dynamic>(txResponse);
-                
-                var txs = (IEnumerable<dynamic>)txData.txids;
-                var txList = txs.Take(15).ToList(); // Get first 15 txids
+                var txList = ((IEnumerable<dynamic>)txData.txids).Take(15).ToList();
 
-                int pageSize = 5;
-                int totalPages = (int)Math.Ceiling(txList.Count / (double)pageSize);
-                var pagedTxs = txList.Skip((page - 1) * pageSize).Take(pageSize);
+                int totalPages = (int)Math.Ceiling(txList.Count / 5.0);
+                var pagedTxs = txList.Skip((page - 1) * 5).Take(5);
 
                 var embed = new EmbedBuilder()
                     .WithTitle("Live LTC Transactions")
                     .WithColor(Color.Purple)
-                    .WithFooter(footer => { footer.Text = $"Page {page} of {totalPages} | Block: {blockData?.height}"; })
+                    .WithFooter(f => f.Text = $"Page {page}/{totalPages} | Block: {blockData?.height}")
                     .WithCurrentTimestamp();
 
                 foreach (var txId in pagedTxs)
                 {
-                    embed.AddField("Transaction ID", $"`{txId}`\n[View on BlockCypher](https://live.blockcypher.com/ltc/tx/{txId}/)", false);
+                    embed.AddField("TX ID", $"`{txId}`\n[View](https://live.blockcypher.com/ltc/tx/{txId}/)");
                 }
 
                 var builder = new ComponentBuilder()
                     .WithButton("Previous", $"page_{page - 1}", disabled: page <= 1)
                     .WithButton("Next", $"page_{page + 1}", disabled: page >= totalPages);
 
-                if (command != null)
-                    await command.RespondAsync(embed: embed.Build(), components: builder.Build(), ephemeral: true);
+                await command.RespondAsync(embed: embed.Build(), components: builder.Build(), ephemeral: true);
             }
-            catch (Exception ex)
-            {
-                Console.WriteLine(ex.ToString());
-                if (command != null)
-                    await command.RespondAsync("Error fetching live transactions from BlockCypher.", ephemeral: true);
-            }
+            catch { await command.RespondAsync("Error fetching data.", ephemeral: true); }
         }
 
         private async Task ButtonHandler(SocketMessageComponent component)
