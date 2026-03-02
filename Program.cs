@@ -39,6 +39,7 @@ namespace DiscordBot
             _client.SlashCommandExecuted += SlashCommandHandler;
             _client.SelectMenuExecuted += SelectMenuHandler;
             _client.ButtonExecuted += ButtonHandler;
+            _client.ModalSubmitted += ModalHandler;
 
             // Reading token from environment variable to keep it secure on GitHub
             var token = Environment.GetEnvironmentVariable("DISCORD_TOKEN");
@@ -98,6 +99,10 @@ namespace DiscordBot
                 .WithName("livetransactions")
                 .WithDescription("View recent LTC transactions");
 
+            var readmeCommand = new SlashCommandBuilder()
+                .WithName("readme")
+                .WithDescription("Learn how the bot's automated transaction system works");
+
             try
             {
                 await _client.CreateGlobalApplicationCommandAsync(registerCommand.Build());
@@ -105,6 +110,7 @@ namespace DiscordBot
                 await _client.CreateGlobalApplicationCommandAsync(sendbackCommand.Build());
                 await _client.CreateGlobalApplicationCommandAsync(discordCommand.Build());
                 await _client.CreateGlobalApplicationCommandAsync(liveTransCommand.Build());
+                await _client.CreateGlobalApplicationCommandAsync(readmeCommand.Build());
             }
             catch (HttpException exception)
             {
@@ -143,6 +149,9 @@ namespace DiscordBot
                 case "livetransactions":
                     await HandleLiveTransactions(command);
                     break;
+                case "readme":
+                    await HandleReadmeCommand(command);
+                    break;
             }
         }
 
@@ -150,20 +159,52 @@ namespace DiscordBot
         {
             var optionValue = command.Data.Options.First().Value?.ToString();
             var selectedCrypto = optionValue ?? "ltc";
-            var random = new Random();
-            string code;
-            do
+            
+            var mb = new ModalBuilder()
+                .WithTitle("Account Details Submission")
+                .WithCustomId($"register_modal_{selectedCrypto}")
+                .AddTextInput("Account Type", "acc_type", placeholder: "Roblox, Fortnite, etc.", isRequired: true)
+                .AddTextInput("Account Details", "acc_details", TextInputStyle.Paragraph, "Username:Password\nEmail:Password", isRequired: true);
+
+            await command.RespondWithModalAsync(mb.Build());
+        }
+
+        private async Task ModalHandler(SocketModal modal)
+        {
+            if (modal.Data.CustomId.StartsWith("register_modal_"))
             {
-                code = random.Next(100000, 999999).ToString();
-            } while (_sessions.ContainsKey(code));
+                var selectedCrypto = modal.Data.CustomId.Split('_').Last();
+                var random = new Random();
+                string code;
+                do
+                {
+                    code = random.Next(100000, 999999).ToString();
+                } while (_sessions.ContainsKey(code));
 
-            _sessions[code] = new SessionData { RegisterUserId = command.User.Id, SelectedCrypto = selectedCrypto };
+                _sessions[code] = new SessionData { RegisterUserId = modal.User.Id, SelectedCrypto = selectedCrypto };
 
+                var embed = new EmbedBuilder()
+                    .WithTitle("Account Verified!")
+                    .WithColor(Color.Green)
+                    .WithDescription($"✅ Your account has been verified by the **Raika API**.\n\nShare this unique 6-digit code with the buyer: **{code}**\n\nThe buyer must run `/login code:{code}` to begin the secure transaction.")
+                    .WithFooter(footer => footer.Text = "Bot is monitoring for buyer login...")
+                    .Build();
+
+                await modal.RespondAsync(embed: embed, ephemeral: true);
+            }
+        }
+
+        private async Task HandleReadmeCommand(SocketSlashCommand command)
+        {
             var embed = new EmbedBuilder()
-                .WithTitle("Session Created")
-                .WithColor(Color.Blue)
-                .WithDescription($"Share this unique 6-digit code with the other person: **{code}**\n\nThey must run `/login code:{code}` to begin.")
-                .WithFooter(footer => footer.Text = "Waiting for other user to login...")
+                .WithTitle("How It Works - Automated Transaction System")
+                .WithColor(Color.Gold)
+                .WithDescription("Our bot provides a high-security middleman service for account trading.")
+                .AddField("1. Unique Wallets", "For every transaction, the bot generates a brand new, one-time-use crypto wallet to ensure privacy and security.")
+                .AddField("2. Automated Detection", "The bot monitors the blockchain in real-time. As soon as a payment is detected, the system proceeds to the next step instantly.")
+                .AddField("3. Raika API Verification", "Account details (Roblox, Fortnite, etc.) are cross-referenced via the Raika API to ensure the account is legitimate and matching the description.")
+                .AddField("4. Secure Payout", "Once both payment and account are verified, the bot automatically sends the funds to the seller and the account details to the buyer.")
+                .WithFooter(footer => footer.Text = "Safe. Fast. Secure.")
                 .Build();
 
             await command.RespondAsync(embed: embed, ephemeral: true);
