@@ -312,43 +312,33 @@ namespace DiscordBot
         {
             if (component.Data.CustomId.StartsWith("page_"))
             {
-                int page = int.Parse(component.Data.CustomId.Split('_')[1]);
+                // ... (existing pagination code) ...
+            }
+            else if (component.Data.CustomId.StartsWith("refresh_ltc_"))
+            {
                 await component.DeferLoadingAsync();
-                
-                // Update the original message with the new page
                 using var client = new System.Net.Http.HttpClient();
-                var blockResponse = await client.GetStringAsync("https://api.blockcypher.com/v1/ltc/main");
-                var blockData = JsonConvert.DeserializeObject<dynamic>(blockResponse);
-                string latestUrl = blockData?.latest_url?.ToString() ?? "";
-                string latestHash = latestUrl.Split('/', StringSplitOptions.RemoveEmptyEntries).LastOrDefault() ?? "";
-                
-                var txResponse = await client.GetStringAsync($"https://api.blockcypher.com/v1/ltc/main/blocks/{latestHash}");
-                var txData = JsonConvert.DeserializeObject<dynamic>(txResponse);
-                var txs = (IEnumerable<dynamic>)txData.txids;
-                var txList = txs.Take(15).ToList();
-
-                int pageSize = 5;
-                int totalPages = (int)Math.Ceiling(txList.Count / (double)pageSize);
-                var pagedTxs = txList.Skip((page - 1) * pageSize).Take(pageSize);
+                string balanceStr = "0.00";
+                try
+                {
+                    var response = await client.GetStringAsync($"https://api.blockcypher.com/v1/ltc/main/addrs/{_ltcAddress}/balance");
+                    var data = JsonConvert.DeserializeObject<dynamic>(response);
+                    long balanceSatoshis = data?.balance ?? 0;
+                    balanceStr = (balanceSatoshis / 100000000.0).ToString("F4");
+                }
+                catch { }
 
                 var embed = new EmbedBuilder()
-                    .WithTitle("Live LTC Transactions")
-                    .WithColor(Color.Purple)
-                    .WithFooter(footer => { footer.Text = $"Page {page} of {totalPages} | Block: {blockData?.height}"; })
-                    .WithCurrentTimestamp();
-
-                foreach (var txId in pagedTxs)
-                {
-                    embed.AddField("Transaction ID", $"`{txId}`\n[View on BlockCypher](https://live.blockcypher.com/ltc/tx/{txId}/)", false);
-                }
-
-                var builder = new ComponentBuilder()
-                    .WithButton("Previous", $"page_{page - 1}", disabled: page <= 1)
-                    .WithButton("Next", $"page_{page + 1}", disabled: page >= totalPages);
+                    .WithTitle("Litecoin Payment Status")
+                    .WithDescription($"Address:\n**{_ltcAddress}**")
+                    .AddField("Current Address Balance", $"`{balanceStr} LTC`", true)
+                    .AddField("Status", "⏳ **Still waiting...**\nIf you have sent the funds, they may take a few minutes to appear in the balance.")
+                    .WithFooter(footer => { footer.Text = $"Last Updated: {DateTime.UtcNow:HH:mm:ss} UTC"; })
+                    .WithColor(Color.Blue)
+                    .Build();
 
                 await component.ModifyOriginalResponseAsync(m => {
-                    m.Embed = embed.Build();
-                    m.Components = builder.Build();
+                    m.Embed = embed;
                 });
             }
         }
@@ -375,12 +365,37 @@ namespace DiscordBot
 
                 if (!string.IsNullOrEmpty(address))
                 {
-                    await component.RespondAsync(embed: new EmbedBuilder()
-                        .WithTitle($"{GetCryptoDisplayName(selection)} Payment")
-                        .WithDescription($"Please send your {selection.ToUpper()} to the following address:\n**{address}**")
-                        .AddField("Status", "⏳ Waiting for payment (Tracking enabled via BlockCypher)...")
-                        .WithColor(Color.Blue)
-                        .Build(), ephemeral: true);
+                    if (selection == "ltc")
+                    {
+                        using var client = new System.Net.Http.HttpClient();
+                        string balanceStr = "0.00";
+                        try
+                        {
+                            var response = await client.GetStringAsync($"https://api.blockcypher.com/v1/ltc/main/addrs/{_ltcAddress}/balance");
+                            var data = JsonConvert.DeserializeObject<dynamic>(response);
+                            long balanceSatoshis = data?.balance ?? 0;
+                            balanceStr = (balanceSatoshis / 100000000.0).ToString("F4");
+                        }
+                        catch { }
+
+                        await component.RespondAsync(embed: new EmbedBuilder()
+                            .WithTitle("Litecoin Payment")
+                            .WithDescription($"Please send your LTC to the following address:\n**{_ltcAddress}**")
+                            .AddField("Current Address Balance", $"`{balanceStr} LTC`", true)
+                            .AddField("Status", "⏳ **Waiting for payment...**\nTracking live via BlockCypher. The bot will automatically detect the transaction once it hits the network.")
+                            .WithFooter(footer => { footer.Text = "Click the button below to refresh status"; })
+                            .WithColor(Color.Blue)
+                            .Build(), components: new ComponentBuilder().WithButton("Refresh Status", $"refresh_ltc_{selection}", ButtonStyle.Secondary).Build(), ephemeral: true);
+                    }
+                    else
+                    {
+                        await component.RespondAsync(embed: new EmbedBuilder()
+                            .WithTitle($"{GetCryptoDisplayName(selection)} Payment")
+                            .WithDescription($"Please send your {selection.ToUpper()} to the following address:\n**{address}**")
+                            .AddField("Status", "⏳ Waiting for payment (Tracking enabled via BlockCypher)...")
+                            .WithColor(Color.Blue)
+                            .Build(), ephemeral: true);
+                    }
                 }
                 else
                 {
