@@ -63,7 +63,7 @@ namespace DiscordBot
             return Task.CompletedTask;
         }
 
-        public async Task Client_Ready()
+        public Task Client_Ready()
         {
             // Run command registration in a separate task to avoid blocking the gateway
             _ = Task.Run(async () =>
@@ -364,7 +364,43 @@ namespace DiscordBot
         {
             if (component.Data.CustomId.StartsWith("page_"))
             {
-                // ... (existing pagination code) ...
+                int page = int.Parse(component.Data.CustomId.Split('_')[1]);
+                await component.DeferLoadingAsync();
+                
+                // Update the original message with the new page
+                using var client = new System.Net.Http.HttpClient();
+                var blockResponse = await client.GetStringAsync("https://api.blockcypher.com/v1/ltc/main");
+                var blockData = JsonConvert.DeserializeObject<dynamic>(blockResponse);
+                string? latestUrl = blockData?.latest_url?.ToString();
+                string latestHash = (latestUrl ?? "").Split('/', StringSplitOptions.RemoveEmptyEntries).LastOrDefault() ?? "";
+                
+                var txResponse = await client.GetStringAsync($"https://api.blockcypher.com/v1/ltc/main/blocks/{latestHash}");
+                var txData = JsonConvert.DeserializeObject<dynamic>(txResponse);
+                var txList = ((IEnumerable<dynamic>)txData.txids).Take(15).ToList();
+
+                int pageSize = 5;
+                int totalPages = (int)Math.Ceiling(txList.Count / 5.0);
+                var pagedTxs = txList.Skip((page - 1) * 5).Take(5);
+
+                var embed = new EmbedBuilder()
+                    .WithTitle("Live LTC Transactions")
+                    .WithColor(Color.Purple)
+                    .WithFooter(footer => { footer.Text = $"Page {page} of {totalPages} | Block: {blockData?.height}"; })
+                    .WithCurrentTimestamp();
+
+                foreach (var txId in pagedTxs)
+                {
+                    embed.AddField("Transaction ID", $"`{txId}`\n[View on BlockCypher](https://live.blockcypher.com/ltc/tx/{txId}/)", false);
+                }
+
+                var builder = new ComponentBuilder()
+                    .WithButton("Previous", $"page_{page - 1}", disabled: page <= 1)
+                    .WithButton("Next", $"page_{page + 1}", disabled: page >= totalPages);
+
+                await component.ModifyOriginalResponseAsync(m => {
+                    m.Embed = embed.Build();
+                    m.Components = builder.Build();
+                });
             }
             else if (component.Data.CustomId.StartsWith("refresh_ltc_"))
             {
