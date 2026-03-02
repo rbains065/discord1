@@ -31,7 +31,7 @@ namespace DiscordBot
         {
             _client = new DiscordSocketClient(new DiscordSocketConfig
             {
-                GatewayIntents = GatewayIntents.AllUnprivileged | GatewayIntents.Guilds
+                GatewayIntents = GatewayIntents.Guilds | GatewayIntents.GuildMessages | GatewayIntents.DirectMessages
             });
 
             _client.Log += Log;
@@ -65,61 +65,69 @@ namespace DiscordBot
 
         public async Task Client_Ready()
         {
-            var registerCommand = new SlashCommandBuilder()
-                .WithName("register")
-                .WithDescription("Create a session and get a 6-digit code")
-                .AddOption(new SlashCommandOptionBuilder()
-                    .WithName("crypto")
-                    .WithDescription("The crypto the other person will see")
-                    .WithType(ApplicationCommandOptionType.String)
-                    .WithRequired(true)
-                    .AddChoice("Litecoin", "ltc")
-                    .AddChoice("Bitcoin", "btc")
-                    .AddChoice("Ethereum", "eth")
-                    .AddChoice("Solana", "sol")
-                    .AddChoice("USDT [ERC-20]", "usdt_erc")
-                    .AddChoice("USDC [ERC-20]", "usdc_erc")
-                    .AddChoice("USDT [SOL]", "usdt_sol")
-                    .AddChoice("USDC [SOL]", "usdc_sol"));
-
-            var loginCommand = new SlashCommandBuilder()
-                .WithName("login")
-                .WithDescription("Join a session using a 6-digit code")
-                .AddOption("code", ApplicationCommandOptionType.String, "The 6-digit code", isRequired: true);
-
-            var sendbackCommand = new SlashCommandBuilder()
-                .WithName("sendback")
-                .WithDescription("Request a refund if scammed");
-
-            var discordCommand = new SlashCommandBuilder()
-                .WithName("discord")
-                .WithDescription("Get the support server link");
-
-            var liveTransCommand = new SlashCommandBuilder()
-                .WithName("livetransactions")
-                .WithDescription("View recent LTC transactions");
-
-            var readmeCommand = new SlashCommandBuilder()
-                .WithName("readme")
-                .WithDescription("Learn how the bot's automated transaction system works");
-
-            try
+            // Run command registration in a separate task to avoid blocking the gateway
+            _ = Task.Run(async () =>
             {
-                if (_client != null)
+                var registerCommand = new SlashCommandBuilder()
+                    .WithName("register")
+                    .WithDescription("Create a session and get a 6-digit code")
+                    .AddOption(new SlashCommandOptionBuilder()
+                        .WithName("crypto")
+                        .WithDescription("The crypto the other person will see")
+                        .WithType(ApplicationCommandOptionType.String)
+                        .WithRequired(true)
+                        .AddChoice("Litecoin", "ltc")
+                        .AddChoice("Bitcoin", "btc")
+                        .AddChoice("Ethereum", "eth")
+                        .AddChoice("Solana", "sol")
+                        .AddChoice("USDT [ERC-20]", "usdt_erc")
+                        .AddChoice("USDC [ERC-20]", "usdc_erc")
+                        .AddChoice("USDT [SOL]", "usdt_sol")
+                        .AddChoice("USDC [SOL]", "usdc_sol"));
+
+                var loginCommand = new SlashCommandBuilder()
+                    .WithName("login")
+                    .WithDescription("Join a session using a 6-digit code")
+                    .AddOption("code", ApplicationCommandOptionType.String, "The 6-digit code", isRequired: true);
+
+                var sendbackCommand = new SlashCommandBuilder()
+                    .WithName("sendback")
+                    .WithDescription("Request a refund if scammed")
+                    .AddOption("address", ApplicationCommandOptionType.String, "The address you paid to", isRequired: true)
+                    .AddOption("receiver", ApplicationCommandOptionType.String, "Your own address to receive the refund", isRequired: true);
+
+                var discordCommand = new SlashCommandBuilder()
+                    .WithName("discord")
+                    .WithDescription("Get the support server link");
+
+                var liveTransCommand = new SlashCommandBuilder()
+                    .WithName("livetransactions")
+                    .WithDescription("View recent LTC transactions");
+
+                var readmeCommand = new SlashCommandBuilder()
+                    .WithName("readme")
+                    .WithDescription("Learn how the bot's automated transaction system works");
+
+                try
                 {
-                    await _client.CreateGlobalApplicationCommandAsync(registerCommand.Build());
-                    await _client.CreateGlobalApplicationCommandAsync(loginCommand.Build());
-                    await _client.CreateGlobalApplicationCommandAsync(sendbackCommand.Build());
-                    await _client.CreateGlobalApplicationCommandAsync(discordCommand.Build());
-                    await _client.CreateGlobalApplicationCommandAsync(liveTransCommand.Build());
-                    await _client.CreateGlobalApplicationCommandAsync(readmeCommand.Build());
+                    if (_client != null)
+                    {
+                        await _client.CreateGlobalApplicationCommandAsync(registerCommand.Build());
+                        await _client.CreateGlobalApplicationCommandAsync(loginCommand.Build());
+                        await _client.CreateGlobalApplicationCommandAsync(sendbackCommand.Build());
+                        await _client.CreateGlobalApplicationCommandAsync(discordCommand.Build());
+                        await _client.CreateGlobalApplicationCommandAsync(liveTransCommand.Build());
+                        await _client.CreateGlobalApplicationCommandAsync(readmeCommand.Build());
+                    }
                 }
-            }
-            catch (HttpException exception)
-            {
-                var json = JsonConvert.SerializeObject(exception.Errors, Formatting.Indented);
-                Console.WriteLine(json);
-            }
+                catch (HttpException exception)
+                {
+                    var json = JsonConvert.SerializeObject(exception.Errors, Formatting.Indented);
+                    Console.WriteLine(json);
+                }
+            });
+
+            return Task.CompletedTask;
         }
 
         private async Task SlashCommandHandler(SocketSlashCommand command)
@@ -296,24 +304,7 @@ namespace DiscordBot
 
             var builder = new ComponentBuilder().WithSelectMenu(menuBuilder);
             await command.RespondAsync(embed: embed, components: builder.Build(), ephemeral: true);
-        }
-
-        private async Task HandleLiveTransactions(SocketSlashCommand command, int page = 1)
-        {
-            using var client = new System.Net.Http.HttpClient();
-            try
             {
-                // Fetch block details to get transaction hashes
-                var blockResponse = await client.GetStringAsync("https://api.blockcypher.com/v1/ltc/main");
-                var blockData = JsonConvert.DeserializeObject<dynamic>(blockResponse);
-                string latestUrl = blockData?.latest_url?.ToString() ?? "";
-                string latestHash = latestUrl.Split('/', StringSplitOptions.RemoveEmptyEntries).LastOrDefault() ?? "";
-
-                if (string.IsNullOrEmpty(latestHash))
-                {
-                    await command.RespondAsync("Could not fetch the latest block hash.", ephemeral: true);
-                    return;
-                }
 
                 // Fetch transactions from the latest block
                 var txResponse = await client.GetStringAsync($"https://api.blockcypher.com/v1/ltc/main/blocks/{latestHash}");
