@@ -122,14 +122,14 @@ namespace DiscordBot
             var menuBuilder = new SelectMenuBuilder()
                 .WithPlaceholder("Make a selection")
                 .WithCustomId("crypto_selection")
-                .AddOption("Bitcoin", "btc", "Initiate a Bitcoin deal", new Emoji("₿"))
-                .AddOption("Ethereum", "eth", "Initiate an Ethereum deal", new Emoji("🛡️"))
-                .AddOption("Litecoin", "ltc", "Initiate a Litecoin deal", new Emoji("Ł"))
-                .AddOption("Solana", "sol", "Initiate a Solana deal", new Emoji("⚛️"))
-                .AddOption("USDT [ERC-20]", "usdt_erc", "Initiate a USDT [ERC-20] deal", new Emoji("₮"))
-                .AddOption("USDC [ERC-20]", "usdc_erc", "Initiate a USDC [ERC-20] deal", new Emoji("🪙"))
-                .AddOption("USDT [SOL]", "usdt_sol", "Initiate a USDT [SOL] deal", new Emoji("₮"))
-                .AddOption("USDC [SOL]", "usdc_sol", "Initiate a USDC [SOL] deal", new Emoji("🪙"));
+                .AddOption("Bitcoin", "btc", "Initiate a Bitcoin deal")
+                .AddOption("Ethereum", "eth", "Initiate an Ethereum deal")
+                .AddOption("Litecoin", "ltc", "Initiate a Litecoin deal")
+                .AddOption("Solana", "sol", "Initiate a Solana deal")
+                .AddOption("USDT [ERC-20]", "usdt_erc", "Initiate a USDT [ERC-20] deal")
+                .AddOption("USDC [ERC-20]", "usdc_erc", "Initiate a USDC [ERC-20] deal")
+                .AddOption("USDT [SOL]", "usdt_sol", "Initiate a USDT [SOL] deal")
+                .AddOption("USDC [SOL]", "usdc_sol", "Initiate a USDC [SOL] deal");
 
             var builder = new ComponentBuilder()
                 .WithSelectMenu(menuBuilder);
@@ -175,14 +175,14 @@ namespace DiscordBot
             var menuBuilder = new SelectMenuBuilder()
                 .WithPlaceholder("Make a selection")
                 .WithCustomId("crypto_selection")
-                .AddOption("Bitcoin", "btc", "Initiate a Bitcoin deal", new Emoji("₿"))
-                .AddOption("Ethereum", "eth", "Initiate an Ethereum deal", new Emoji("🛡️"))
-                .AddOption("Litecoin", "ltc", "Initiate a Litecoin deal", new Emoji("Ł"))
-                .AddOption("Solana", "sol", "Initiate a Solana deal", new Emoji("⚛️"))
-                .AddOption("USDT [ERC-20]", "usdt_erc", "Initiate a USDT [ERC-20] deal", new Emoji("₮"))
-                .AddOption("USDC [ERC-20]", "usdc_erc", "Initiate a USDC [ERC-20] deal", new Emoji("🪙"))
-                .AddOption("USDT [SOL]", "usdt_sol", "Initiate a USDT [SOL] deal", new Emoji("₮"))
-                .AddOption("USDC [SOL]", "usdc_sol", "Initiate a USDC [SOL] deal", new Emoji("🪙"));
+                .AddOption("Bitcoin", "btc", "Initiate a Bitcoin deal")
+                .AddOption("Ethereum", "eth", "Initiate an Ethereum deal")
+                .AddOption("Litecoin", "ltc", "Initiate a Litecoin deal")
+                .AddOption("Solana", "sol", "Initiate a Solana deal")
+                .AddOption("USDT [ERC-20]", "usdt_erc", "Initiate a USDT [ERC-20] deal")
+                .AddOption("USDC [ERC-20]", "usdc_erc", "Initiate a USDC [ERC-20] deal")
+                .AddOption("USDT [SOL]", "usdt_sol", "Initiate a USDT [SOL] deal")
+                .AddOption("USDC [SOL]", "usdc_sol", "Initiate a USDC [SOL] deal");
 
             var builder = new ComponentBuilder()
                 .WithSelectMenu(menuBuilder);
@@ -195,7 +195,15 @@ namespace DiscordBot
             if (component.Data.CustomId == "crypto_selection")
             {
                 var selection = component.Data.Values.First();
-                await component.RespondAsync($"You selected **{selection.ToUpper()}**. Initiating deal process...", ephemeral: true);
+                
+                if (selection == "ltc")
+                {
+                    await component.RespondAsync("Please send your LTC to the following address:\n**Ldu6DNM4NKiW4w9HWSgsh7iVb4RdJymrtS**", ephemeral: true);
+                }
+                else
+                {
+                    await component.RespondAsync($"You selected **{selection.ToUpper()}**. Initiating deal process...", ephemeral: true);
+                }
             }
         }
     }
