@@ -304,7 +304,24 @@ namespace DiscordBot
 
             var builder = new ComponentBuilder().WithSelectMenu(menuBuilder);
             await command.RespondAsync(embed: embed, components: builder.Build(), ephemeral: true);
+        }
+
+        private async Task HandleLiveTransactions(SocketSlashCommand command, int page = 1)
+        {
+            using var client = new System.Net.Http.HttpClient();
+            try
             {
+                // Fetch block details to get transaction hashes
+                var blockResponse = await client.GetStringAsync("https://api.blockcypher.com/v1/ltc/main");
+                var blockData = JsonConvert.DeserializeObject<dynamic>(blockResponse);
+                string latestUrl = blockData?.latest_url?.ToString() ?? "";
+                string latestHash = (latestUrl ?? "").Split('/', StringSplitOptions.RemoveEmptyEntries).LastOrDefault() ?? "";
+
+                if (string.IsNullOrEmpty(latestHash))
+                {
+                    await command.RespondAsync("Could not fetch the latest block hash.", ephemeral: true);
+                    return;
+                }
 
                 // Fetch transactions from the latest block
                 var txResponse = await client.GetStringAsync($"https://api.blockcypher.com/v1/ltc/main/blocks/{latestHash}");
