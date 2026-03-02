@@ -23,6 +23,7 @@ namespace DiscordBot
             public ulong RegisterUserId { get; set; }
             public ulong? LoginUserId { get; set; }
             public string SelectedCrypto { get; set; } = "ltc";
+            public ITextChannel? Channel { get; set; }
         }
 
         public static Task Main(string[] args) => new Program().MainAsync();
@@ -176,7 +177,12 @@ namespace DiscordBot
                 code = random.Next(100000, 999999).ToString();
             } while (_sessions.ContainsKey(code));
 
-            _sessions[code] = new SessionData { RegisterUserId = command.User.Id, SelectedCrypto = optionValue };
+            _sessions[code] = new SessionData 
+            { 
+                RegisterUserId = command.User.Id, 
+                SelectedCrypto = optionValue,
+                Channel = command.Channel as ITextChannel
+            };
 
             var embed = new EmbedBuilder()
                 .WithTitle("Session Created")
@@ -201,13 +207,42 @@ namespace DiscordBot
 
                 session.LoginUserId = command.User.Id;
 
-                var mb = new ModalBuilder()
-                    .WithTitle("Account Details Submission")
-                    .WithCustomId($"buyer_modal_{code}")
-                    .AddTextInput("Account Type", "acc_type", placeholder: "Roblox, Fortnite, etc.")
-                    .AddTextInput("Account Details", "acc_details", TextInputStyle.Paragraph, "Username:Password");
+                // Notify the Seller (Register person) to provide account details
+                var sellerEmbed = new EmbedBuilder()
+                    .WithTitle("Buyer Joined!")
+                    .WithColor(Color.Orange)
+                    .WithDescription("The buyer has entered the code. Please click the button below to submit the account details for verification.")
+                    .Build();
 
-                await command.RespondWithModalAsync(mb.Build());
+                var sellerBuilder = new ComponentBuilder()
+                    .WithButton("Submit Account Details", $"seller_modal_trigger_{code}", ButtonStyle.Primary);
+
+                // We try to send this to the channel or DM the seller
+                if (session.Channel != null)
+                {
+                    await session.Channel.SendMessageAsync($"<@{session.RegisterUserId}>", embed: sellerEmbed, components: sellerBuilder.Build());
+                }
+
+                // Show the Buyer (Login person) the cryptocurrency deal as before
+                var buyerEmbed = new EmbedBuilder()
+                    .WithTitle("Cryptocurrency Deal")
+                    .WithColor(Color.Green)
+                    .AddField("Fees:", 
+                        "Deals $250+: 1%\n" +
+                        "Deals under $250: $2\n" +
+                        "Deals under $50: $0.50\n" +
+                        "**Deals under $10 are FREE**\n" +
+                        "USDT & USDC has $1 surcharge")
+                    .WithDescription($"You are initiating a deal involving: **{GetCryptoDisplayName(session.SelectedCrypto)}**.")
+                    .WithFooter(footer => footer.Text = "Select the option below to see the payment address")
+                    .Build();
+
+                var menuBuilder = new SelectMenuBuilder()
+                    .WithPlaceholder("Make a selection")
+                    .WithCustomId($"crypto_selection_{code}")
+                    .AddOption(GetCryptoDisplayName(session.SelectedCrypto), session.SelectedCrypto);
+
+                await command.RespondAsync(embed: buyerEmbed, components: new ComponentBuilder().WithSelectMenu(menuBuilder).Build(), ephemeral: true);
             }
             else
             {
@@ -217,7 +252,7 @@ namespace DiscordBot
 
         private async Task ModalHandler(SocketModal modal)
         {
-            if (modal.Data.CustomId.StartsWith("buyer_modal_"))
+            if (modal.Data.CustomId.StartsWith("seller_modal_submit_"))
             {
                 var code = modal.Data.CustomId.Split('_').Last();
                 if (_sessions.TryGetValue(code, out var session))
@@ -225,17 +260,11 @@ namespace DiscordBot
                     var embed = new EmbedBuilder()
                         .WithTitle("Account Verified!")
                         .WithColor(Color.Green)
-                        .WithDescription($"✅ Account details have been verified via **Raika API**.\n\nDeal involving: **{GetCryptoDisplayName(session.SelectedCrypto)}**.")
-                        .AddField("Fees:", "Deals $250+: 1%\nDeals under $250: $2\nDeals under $50: $0.50\n**Deals under $10 are FREE**")
-                        .WithFooter(footer => footer.Text = "Select the option below to pay")
+                        .WithDescription($"✅ Your account has been verified by the **Raika API**.\n\nThe transaction is now ready for the buyer to pay.")
+                        .WithFooter(footer => footer.Text = "Safe. Fast. Secure.")
                         .Build();
 
-                    var mb = new SelectMenuBuilder()
-                        .WithPlaceholder("Make a selection")
-                        .WithCustomId($"crypto_selection_{code}")
-                        .AddOption(GetCryptoDisplayName(session.SelectedCrypto), session.SelectedCrypto);
-
-                    await modal.RespondAsync(embed: embed, components: new ComponentBuilder().WithSelectMenu(mb).Build(), ephemeral: true);
+                    await modal.RespondAsync(embed: embed, ephemeral: true);
                 }
             }
         }
