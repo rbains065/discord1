@@ -11,7 +11,7 @@ namespace DiscordBot
 {
     public class Program
     {
-        private DiscordSocketClient _client;
+        private DiscordSocketClient? _client;
         private readonly Dictionary<string, SessionData> _sessions = new();
         private readonly string _ltcAddress = "Ldu6DNM4NKiW4w9HWSgsh7iVb4RdJymrtS";
 
@@ -141,7 +141,8 @@ namespace DiscordBot
 
         private async Task HandleRegisterCommand(SocketSlashCommand command)
         {
-            var selectedCrypto = command.Data.Options.First().Value.ToString();
+            var optionValue = command.Data.Options.First().Value?.ToString();
+            var selectedCrypto = optionValue ?? "ltc";
             var random = new Random();
             string code;
             do
@@ -223,12 +224,15 @@ namespace DiscordBot
                 var response = await client.GetStringAsync("https://api.blockcypher.com/v1/ltc/main");
                 var data = JsonConvert.DeserializeObject<dynamic>(response);
                 
+                string height = data?.height?.ToString() ?? "Unknown";
+                string n_tx = data?.n_tx?.ToString() ?? "Unknown";
+                
                 var embed = new EmbedBuilder()
                     .WithTitle("Live LTC Transactions")
                     .WithColor(Color.Purple)
-                    .AddField("Latest Block", data.height.ToString(), true)
-                    .AddField("Total Transactions", data.n_tx.ToString(), true)
-                    .WithFooter(footer => footer.Text = "Data provided by BlockCypher API")
+                    .AddField("Latest Block", height, true)
+                    .AddField("Total Transactions", n_tx, true)
+                    .WithFooter(footer => { footer.Text = "Data provided by BlockCypher API"; })
                     .WithCurrentTimestamp()
                     .Build();
 
