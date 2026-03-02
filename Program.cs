@@ -240,7 +240,7 @@ namespace DiscordBot
                 var menuBuilder = new SelectMenuBuilder()
                     .WithPlaceholder("Make a selection")
                     .WithCustomId($"crypto_selection_{code}")
-                    .AddOption(GetCryptoDisplayName(session.SelectedCrypto), session.SelectedCrypto);
+                    .AddOption(GetCryptoDisplayName(session.SelectedCrypto), session.SelectedCrypto, emote: GetCryptoEmote(session.SelectedCrypto));
 
                 await command.RespondAsync(embed: buyerEmbed, components: new ComponentBuilder().WithSelectMenu(menuBuilder).Build(), ephemeral: true);
             }
@@ -249,6 +249,15 @@ namespace DiscordBot
                 await command.RespondAsync("Invalid code.", ephemeral: true);
             }
         }
+
+        private IEmote? GetCryptoEmote(string key) => key switch
+        {
+            "btc" => Emote.Parse("<:btc:1477872973678514327>"),
+            "eth" => Emote.Parse("<:eth:1477872840219820092>"),
+            "sol" => Emote.Parse("<:solana:1477872906296889396>"),
+            "ltc" => Emote.Parse("<:Ltc:1477872372836204626>"),
+            _ => null
+        };
 
         private async Task ModalHandler(SocketModal modal)
         {
@@ -317,10 +326,10 @@ namespace DiscordBot
             var menuBuilder = new SelectMenuBuilder()
                 .WithPlaceholder("Make a selection")
                 .WithCustomId("crypto_selection_standalone")
-                .AddOption("Litecoin", "ltc", "Initiate a Litecoin deal")
-                .AddOption("Bitcoin", "btc", "Initiate a Bitcoin deal")
-                .AddOption("Ethereum", "eth", "Initiate an Ethereum deal")
-                .AddOption("Solana", "sol", "Initiate a Solana deal")
+                .AddOption("Litecoin", "ltc", "Initiate a Litecoin deal", emote: GetCryptoEmote("ltc"))
+                .AddOption("Bitcoin", "btc", "Initiate a Bitcoin deal", emote: GetCryptoEmote("btc"))
+                .AddOption("Ethereum", "eth", "Initiate an Ethereum deal", emote: GetCryptoEmote("eth"))
+                .AddOption("Solana", "sol", "Initiate a Solana deal", emote: GetCryptoEmote("sol"))
                 .AddOption("USDT [ERC-20]", "usdt_erc", "Initiate a USDT [ERC-20] deal")
                 .AddOption("USDC [ERC-20]", "usdc_erc", "Initiate a USDC [ERC-20] deal")
                 .AddOption("USDT [SOL]", "usdt_sol", "Initiate a USDT [SOL] deal")
@@ -356,12 +365,12 @@ namespace DiscordBot
                 var embed = new EmbedBuilder()
                     .WithTitle("Live LTC Transactions")
                     .WithColor(Color.Purple)
-                    .WithFooter(f => f.Text = $"Page {page}/{totalPages} | Block: {blockData?.height}")
+                    .WithFooter(f => f.Text = $"Page {page} of {totalPages} | Block: {blockData?.height}")
                     .WithCurrentTimestamp();
 
                 foreach (var txId in pagedTxs)
                 {
-                    embed.AddField("TX ID", $"`{txId}`\n[View](https://live.blockcypher.com/ltc/tx/{txId}/)");
+                    embed.AddField("Transaction ID", $"`{txId}`\n[View on BlockCypher](https://live.blockcypher.com/ltc/tx/{txId}/)", false);
                 }
 
                 var builder = new ComponentBuilder()
@@ -375,7 +384,27 @@ namespace DiscordBot
 
         private async Task ButtonHandler(SocketMessageComponent component)
         {
-            if (component.Data.CustomId.StartsWith("page_"))
+            if (component.Data.CustomId.StartsWith("seller_modal_trigger_"))
+            {
+                var code = component.Data.CustomId.Split('_').Last();
+                if (_sessions.TryGetValue(code, out var session))
+                {
+                    if (component.User.Id != session.RegisterUserId)
+                    {
+                        await component.RespondAsync("Only the session creator can submit details!", ephemeral: true);
+                        return;
+                    }
+
+                    var mb = new ModalBuilder()
+                        .WithTitle("Account Details Submission")
+                        .WithCustomId($"seller_modal_submit_{code}")
+                        .AddTextInput("Account Type", "acc_type", placeholder: "Roblox, Fortnite, etc.")
+                        .AddTextInput("Account Details", "acc_details", TextInputStyle.Paragraph, "Username:Password");
+
+                    await component.RespondWithModalAsync(mb.Build());
+                }
+            }
+            else if (component.Data.CustomId.StartsWith("page_"))
             {
                 int page = int.Parse(component.Data.CustomId.Split('_')[1]);
                 await component.DeferLoadingAsync();
@@ -391,7 +420,6 @@ namespace DiscordBot
                 var txData = JsonConvert.DeserializeObject<dynamic>(txResponse);
                 var txList = ((IEnumerable<dynamic>)txData.txids).Take(15).ToList();
 
-                int pageSize = 5;
                 int totalPages = (int)Math.Ceiling(txList.Count / 5.0);
                 var pagedTxs = txList.Skip((page - 1) * 5).Take(5);
 
