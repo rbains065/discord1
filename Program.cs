@@ -105,12 +105,15 @@ namespace DiscordBot
 
             try
             {
-                await _client.CreateGlobalApplicationCommandAsync(registerCommand.Build());
-                await _client.CreateGlobalApplicationCommandAsync(loginCommand.Build());
-                await _client.CreateGlobalApplicationCommandAsync(sendbackCommand.Build());
-                await _client.CreateGlobalApplicationCommandAsync(discordCommand.Build());
-                await _client.CreateGlobalApplicationCommandAsync(liveTransCommand.Build());
-                await _client.CreateGlobalApplicationCommandAsync(readmeCommand.Build());
+                if (_client != null)
+                {
+                    await _client.CreateGlobalApplicationCommandAsync(registerCommand.Build());
+                    await _client.CreateGlobalApplicationCommandAsync(loginCommand.Build());
+                    await _client.CreateGlobalApplicationCommandAsync(sendbackCommand.Build());
+                    await _client.CreateGlobalApplicationCommandAsync(discordCommand.Build());
+                    await _client.CreateGlobalApplicationCommandAsync(liveTransCommand.Build());
+                    await _client.CreateGlobalApplicationCommandAsync(readmeCommand.Build());
+                }
             }
             catch (HttpException exception)
             {
@@ -163,8 +166,8 @@ namespace DiscordBot
             var mb = new ModalBuilder()
                 .WithTitle("Account Details Submission")
                 .WithCustomId($"register_modal_{selectedCrypto}")
-                .AddTextInput("Account Type", "acc_type", placeholder: "Roblox, Fortnite, etc.", isRequired: true)
-                .AddTextInput("Account Details", "acc_details", TextInputStyle.Paragraph, "Username:Password\nEmail:Password", isRequired: true);
+                .AddTextInput("Account Type", "acc_type", placeholder: "Roblox, Fortnite, etc.")
+                .AddTextInput("Account Details", "acc_details", TextInputStyle.Paragraph, "Username:Password\nEmail:Password");
 
             await command.RespondWithModalAsync(mb.Build());
         }
