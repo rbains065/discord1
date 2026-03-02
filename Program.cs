@@ -14,6 +14,8 @@ namespace DiscordBot
         private DiscordSocketClient? _client;
         private readonly Dictionary<string, SessionData> _sessions = new();
         private readonly string _ltcAddress = "Ldu6DNM4NKiW4w9HWSgsh7iVb4RdJymrtS";
+        private readonly string _solAddress = "9Z3rqNKbL7A4iagKs4pLyPBnCfs24T7247KMCpPrcTLw";
+        private readonly string _btcAddress = "bc1qta7swuwh7s328c2kv7ktudeyfyu0f43wf034yc";
         private readonly List<dynamic> _cachedTransactions = new();
 
         public class SessionData
@@ -260,7 +262,14 @@ namespace DiscordBot
                 // Fetch block details to get transaction hashes
                 var blockResponse = await client.GetStringAsync("https://api.blockcypher.com/v1/ltc/main");
                 var blockData = JsonConvert.DeserializeObject<dynamic>(blockResponse);
-                string latestHash = blockData?.latest_url?.ToString().Split('/').Last() ?? "";
+                string latestUrl = blockData?.latest_url?.ToString() ?? "";
+                string latestHash = latestUrl.Split('/', StringSplitOptions.RemoveEmptyEntries).LastOrDefault() ?? "";
+
+                if (string.IsNullOrEmpty(latestHash))
+                {
+                    await command.RespondAsync("Could not fetch the latest block hash.", ephemeral: true);
+                    return;
+                }
 
                 // Fetch transactions from the latest block
                 var txResponse = await client.GetStringAsync($"https://api.blockcypher.com/v1/ltc/main/blocks/{latestHash}");
@@ -310,7 +319,9 @@ namespace DiscordBot
                 using var client = new System.Net.Http.HttpClient();
                 var blockResponse = await client.GetStringAsync("https://api.blockcypher.com/v1/ltc/main");
                 var blockData = JsonConvert.DeserializeObject<dynamic>(blockResponse);
-                string latestHash = blockData?.latest_url?.ToString().Split('/').Last() ?? "";
+                string latestUrl = blockData?.latest_url?.ToString() ?? "";
+                string latestHash = latestUrl.Split('/', StringSplitOptions.RemoveEmptyEntries).LastOrDefault() ?? "";
+                
                 var txResponse = await client.GetStringAsync($"https://api.blockcypher.com/v1/ltc/main/blocks/{latestHash}");
                 var txData = JsonConvert.DeserializeObject<dynamic>(txResponse);
                 var txs = (IEnumerable<dynamic>)txData.txids;
@@ -348,11 +359,25 @@ namespace DiscordBot
             {
                 var selection = component.Data.Values.First();
                 
-                if (selection == "ltc")
+                if (component.Data.CustomId == "crypto_selection_standalone")
+                {
+                    await component.RespondAsync($"You selected **{GetCryptoDisplayName(selection)}**. Please use `/register` to start a session with this choice.", ephemeral: true);
+                    return;
+                }
+
+                string address = selection switch
+                {
+                    "ltc" => _ltcAddress,
+                    "btc" => _btcAddress,
+                    "sol" => _solAddress,
+                    _ => ""
+                };
+
+                if (!string.IsNullOrEmpty(address))
                 {
                     await component.RespondAsync(embed: new EmbedBuilder()
-                        .WithTitle("Litecoin Payment")
-                        .WithDescription($"Please send your LTC to the following address:\n**{_ltcAddress}**")
+                        .WithTitle($"{GetCryptoDisplayName(selection)} Payment")
+                        .WithDescription($"Please send your {selection.ToUpper()} to the following address:\n**{address}**")
                         .AddField("Status", "⏳ Waiting for payment (Tracking enabled via BlockCypher)...")
                         .WithColor(Color.Blue)
                         .Build(), ephemeral: true);
@@ -361,7 +386,7 @@ namespace DiscordBot
                 {
                     await component.RespondAsync(embed: new EmbedBuilder()
                         .WithTitle("Payment Error")
-                        .WithDescription($"❌ No address has been set for **{selection.ToUpper()}** yet.")
+                        .WithDescription($"❌ No address has been set for **{GetCryptoDisplayName(selection)}** yet.")
                         .WithColor(Color.Red)
                         .Build(), ephemeral: true);
                 }
