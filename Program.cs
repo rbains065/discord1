@@ -129,11 +129,16 @@ namespace DiscordBot
                     .WithName("livetransactions")
                     .WithDescription("View recent LTC transactions");
 
+                var tosCommand = new SlashCommandBuilder()
+                    .WithName("tos")
+                    .WithDescription("View the official Terms of Service");
+
                 try
                 {
                     await _client.CreateGlobalApplicationCommandAsync(ticketCommand.Build());
                     await _client.CreateGlobalApplicationCommandAsync(liveTransCommand.Build());
-                    Console.WriteLine("Registered commands: /ticket, /livetransactions");
+                    await _client.CreateGlobalApplicationCommandAsync(tosCommand.Build());
+                    Console.WriteLine("Registered commands: /ticket, /livetransactions, /tos");
                 }
                 catch (HttpException exception)
                 {
@@ -155,7 +160,27 @@ namespace DiscordBot
                 case "livetransactions":
                     await HandleLiveTransactions(command);
                     break;
+                case "tos":
+                    await HandleTosCommand(command);
+                    break;
             }
+        }
+
+        private async Task HandleTosCommand(SocketSlashCommand command)
+        {
+            var embed = new EmbedBuilder()
+                .WithTitle("Terms of Service")
+                .WithColor(Color.Gold)
+                .WithDescription("By using this service, you agree to the **Discord Terms of Service** and the **official Halal Terms**.\n\n" +
+                                 "You are responsible for understanding our platform rules before using the service.\n" +
+                                 "Failure to follow the Terms may result in loss of access or funds. User errors are not compensated.\n\n" +
+                                 "🔗 **Full Terms:**\n" +
+                                 "https://halalmm.com/overview/terms-of-service\n\n" +
+                                 "Please take time to read the Terms in full to understand your responsibilities, our policies, and how we keep users safe.")
+                .WithFooter("Staff are viewing the channel, no scam guarantee.")
+                .Build();
+
+            await command.RespondAsync(embed: embed);
         }
 
         private async Task HandleTicketCommand(SocketSlashCommand command)
