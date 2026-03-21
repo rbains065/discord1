@@ -47,6 +47,8 @@ namespace DiscordBot
             public bool PayoutAddressConfirmed { get; set; }
             public bool CreatorDeleteConfirmed { get; set; }
             public bool PartnerDeleteConfirmed { get; set; }
+            public bool CreatorCancelConfirmed { get; set; }
+            public bool PartnerCancelConfirmed { get; set; }
         }
 
         public static Task Main(string[] args) => new Program().MainAsync();
@@ -513,6 +515,14 @@ namespace DiscordBot
             {
                 await HandleReleaseFundsButton(component);
             }
+            else if (customId.StartsWith("cancel_deal_"))
+            {
+                await HandleCancelDealButton(component);
+            }
+            else if (customId.StartsWith("cancel_confirm_"))
+            {
+                await HandleCancelConfirmation(component);
+            }
             else if (customId.StartsWith("payout_modal_trigger_"))
             {
                 var channelId = ulong.Parse(customId.Split('_')[3]);
@@ -903,6 +913,72 @@ namespace DiscordBot
             await component.Channel.SendMessageAsync(embed: deleteEmbed, components: builder.Build());
         }
 
+        private async Task HandleCancelDealButton(SocketMessageComponent component)
+        {
+            var channelId = ulong.Parse(component.Data.CustomId.Split('_')[2]);
+            if (!_tickets.TryGetValue(channelId, out var ticket)) return;
+
+            var cancelEmbed = new EmbedBuilder()
+                .WithTitle("Cancel Deal Confirmation")
+                .WithColor(Color.Red)
+                .WithDescription("Are you sure you want to cancel this deal? **Both users must confirm** to cancel and return the funds to the buyer's LTC address.")
+                .WithFooter("Staff are viewing the channel, no scam guarantee.")
+                .Build();
+
+            var builder = new ComponentBuilder()
+                .WithButton("Confirm Cancel", $"cancel_confirm_yes_{channelId}", ButtonStyle.Danger)
+                .WithButton("Back", $"cancel_confirm_no_{channelId}", ButtonStyle.Secondary);
+
+            await component.RespondAsync(embed: cancelEmbed, components: builder.Build());
+        }
+
+        private async Task HandleCancelConfirmation(SocketMessageComponent component)
+        {
+            var parts = component.Data.CustomId.Split('_');
+            var action = parts[2]; // yes, no
+            var channelId = ulong.Parse(parts[3]);
+
+            if (!_tickets.TryGetValue(channelId, out var ticket)) return;
+
+            if (action == "no")
+            {
+                await component.RespondAsync("Cancellation aborted.", ephemeral: true);
+                return;
+            }
+
+            if (component.User.Id == ticket.CreatorId) ticket.CreatorCancelConfirmed = true;
+            if (component.User.Id == ticket.PartnerId) ticket.PartnerCancelConfirmed = true;
+
+            await component.RespondAsync($"> <@{component.User.Id}> has confirmed the deal cancellation.");
+
+            if (ticket.CreatorCancelConfirmed && ticket.PartnerCancelConfirmed)
+            {
+                var returnEmbed = new EmbedBuilder()
+                    .WithTitle("Deal Cancelled")
+                    .WithColor(Color.Red)
+                    .WithDescription($"The deal has been cancelled by both parties.\n\nFunds will be returned to the buyer's address: `{_ltcAddress}` (Placeholder for Buyer LTC Addy)")
+                    .AddField("Status", "Processing return transaction...")
+                    .WithFooter("Staff are viewing the channel, no scam guarantee.")
+                    .Build();
+
+                await component.Channel.SendMessageAsync(embed: returnEmbed);
+                
+                // After 10 seconds, ask to delete the ticket
+                await Task.Delay(5000);
+                var deleteEmbed = new EmbedBuilder()
+                    .WithTitle("Delete Ticket?")
+                    .WithColor(Color.DarkGrey)
+                    .WithDescription("The deal is cancelled and funds are being returned. Delete this ticket?")
+                    .Build();
+
+                var builder = new ComponentBuilder()
+                    .WithButton("Delete Ticket", $"ticket_delete_confirm_{channelId}", ButtonStyle.Danger)
+                    .WithButton("Keep Open", $"ticket_delete_cancel_{channelId}", ButtonStyle.Secondary);
+
+                await component.Channel.SendMessageAsync(embed: deleteEmbed, components: builder.Build());
+            }
+        }
+
         private async Task HandleTicketDeleteConfirmation(SocketMessageComponent component)
         {
             var parts = component.Data.CustomId.Split('_');
@@ -1001,7 +1077,11 @@ namespace DiscordBot
                 .AddField("Exchange Rate", $"1 {ticket.SelectedCrypto.ToUpper()} = ${price:F2} USD", false)
                 .Build();
 
-            await channel.SendMessageAsync($"<@{ticket.SenderId}>", embed: invoiceEmbed);
+            var builder = new ComponentBuilder()
+                .WithButton("Release", $"release_funds_{ticket.ChannelId}", ButtonStyle.Success)
+                .WithButton("Cancel", $"cancel_deal_{ticket.ChannelId}", ButtonStyle.Danger);
+
+            await channel.SendMessageAsync($"<@{ticket.SenderId}>", embed: invoiceEmbed, components: builder.Build());
         }
 
         private async Task OnMessageReceived(SocketMessage message)
