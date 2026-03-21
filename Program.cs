@@ -687,15 +687,29 @@ namespace DiscordBot
             if (message.Author.IsBot) return;
             if (!_tickets.TryGetValue(message.Channel.Id, out var ticket)) return;
 
+            // Debug logging to help identify why parsing fails in production
+            Console.WriteLine($"[DEBUG] Message in ticket {message.Channel.Id} from {message.Author.Username}: '{message.Content}'");
+
             // If roles confirmed and waiting for amount
             if (ticket.CreatorConfirmedRoles && ticket.PartnerConfirmedRoles && !ticket.DealAmount.HasValue)
             {
-                if (message.Author.Id != ticket.SenderId) return;
+                if (message.Author.Id != ticket.SenderId)
+                {
+                    Console.WriteLine($"[DEBUG] Ignore: message author {message.Author.Id} is not sender {ticket.SenderId}");
+                    return;
+                }
 
-                string content = message.Content.Replace("$", "").Replace("usd", "", StringComparison.OrdinalIgnoreCase).Trim();
-                if (decimal.TryParse(content, out var amount))
+                // Robust cleaning: remove anything that isn't a digit, decimal point, or comma
+                string cleanContent = new string(message.Content.Where(c => char.IsDigit(c) || c == '.' || c == ',').ToArray());
+                cleanContent = cleanContent.Replace(",", "."); // Handle European format if any
+
+                Console.WriteLine($"[DEBUG] Cleaned content: '{cleanContent}'");
+
+                if (decimal.TryParse(cleanContent, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var amount))
                 {
                     ticket.DealAmount = amount;
+                    Console.WriteLine($"[DEBUG] Parse success: {amount}");
+
                     var confirmEmbed = new EmbedBuilder()
                         .WithTitle("Amount Confirmation")
                         .WithColor(Color.Gold)
@@ -710,6 +724,7 @@ namespace DiscordBot
                 }
                 else
                 {
+                    Console.WriteLine($"[DEBUG] Parse failed for: '{cleanContent}'");
                     var errorEmbed = new EmbedBuilder()
                         .WithTitle("Invalid Amount")
                         .WithColor(Color.Red)
