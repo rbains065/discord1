@@ -722,16 +722,16 @@ namespace DiscordBot
             var channelId = ulong.Parse(component.Data.CustomId.Split('_')[2]);
             if (!_tickets.TryGetValue(channelId, out var ticket)) return;
 
-            if (component.User.Id != ticket.ReceiverId)
+            if (component.User.Id != ticket.SenderId)
             {
-                await component.RespondAsync("Only the buyer can release the funds!", ephemeral: true);
+                await component.RespondAsync("Only the sender can release the funds!", ephemeral: true);
                 return;
             }
 
             var releasedEmbed = new EmbedBuilder()
                 .WithTitle("Funds Released!")
                 .WithColor(Color.Blue)
-                .WithDescription($"> <@{ticket.ReceiverId}> has confirmed receipt of the account.\n\nFunds of `${ticket.DealAmount:F2}` have been released to <@{ticket.SenderId}>.")
+                .WithDescription($"> <@{ticket.SenderId}> has confirmed receipt of the account.\n\nFunds of `${ticket.DealAmount:F2}` (minus fees) have been released to <@{ticket.ReceiverId}>.")
                 .WithFooter("Staff are viewing the channel, no scam guarantee.")
                 .Build();
 
@@ -798,8 +798,9 @@ namespace DiscordBot
                             .WithTitle("Deal Completed!")
                             .WithColor(Color.Green)
                             .WithDescription($"> <@{targetTicket.SenderId}> has sent the **full amount** of `${targetTicket.DealAmount:F2}`.\n\n" +
-                                            $"<@{targetTicket.SenderId}>, please send access to the account to <@{targetTicket.ReceiverId}>.\n\n" +
-                                            $"Once access is received, <@{targetTicket.ReceiverId}> must click the button below to release the funds.")
+                                            $"**Fee**: `$2.00`\n\n" +
+                                            $"<@{targetTicket.ReceiverId}>, please send access to the account to <@{targetTicket.SenderId}>.\n\n" +
+                                            $"Once access is received, <@{targetTicket.SenderId}> must click the button below to release the funds.")
                             .WithFooter("Staff are viewing the channel, no scam guarantee.")
                             .Build();
 
