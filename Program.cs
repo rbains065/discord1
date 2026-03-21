@@ -413,6 +413,10 @@ namespace DiscordBot
             {
                 await HandleFeeButtons(component);
             }
+            else if (customId.StartsWith("release_funds_"))
+            {
+                await HandleReleaseFundsButton(component);
+            }
             else if (customId.StartsWith("page_"))
             {
                 int page = int.Parse(customId.Split('_')[1]);
@@ -713,12 +717,30 @@ namespace DiscordBot
             }
         }
 
-        private string GetCryptoThumbnail(string key) => key switch
+        private async Task HandleReleaseFundsButton(SocketMessageComponent component)
         {
-            "btc" => "https://cdn.discordapp.com/emojis/1477872973678514327.png",
-            "ltc" => "https://cdn.discordapp.com/emojis/1477872372836204626.png",
-            _ => ""
-        };
+            var channelId = ulong.Parse(component.Data.CustomId.Split('_')[2]);
+            if (!_tickets.TryGetValue(channelId, out var ticket)) return;
+
+            if (component.User.Id != ticket.ReceiverId)
+            {
+                await component.RespondAsync("Only the buyer can release the funds!", ephemeral: true);
+                return;
+            }
+
+            var releasedEmbed = new EmbedBuilder()
+                .WithTitle("Funds Released!")
+                .WithColor(Color.Blue)
+                .WithDescription($"> <@{ticket.ReceiverId}> has confirmed receipt of the account.\n\nFunds of `${ticket.DealAmount:F2}` have been released to <@{ticket.SenderId}>.")
+                .WithFooter("Staff are viewing the channel, no scam guarantee.")
+                .Build();
+
+            await component.UpdateAsync(m =>
+            {
+                m.Components = null;
+                m.Embed = releasedEmbed;
+            });
+        }
 
         private decimal CalculateFee(decimal amount)
         {
@@ -727,6 +749,13 @@ namespace DiscordBot
             if (amount < 250) return 2.00m;
             return amount * 0.01m;
         }
+
+        private string GetCryptoThumbnail(string key) => key switch
+        {
+            "btc" => "https://cdn.discordapp.com/emojis/1477872973678514327.png",
+            "ltc" => "https://cdn.discordapp.com/emojis/1477872372836204626.png",
+            _ => ""
+        };
 
         private async Task ShowInvoice(ISocketMessageChannel channel, TicketData ticket)
         {
@@ -768,14 +797,19 @@ namespace DiscordBot
                         var completeEmbed = new EmbedBuilder()
                             .WithTitle("Deal Completed!")
                             .WithColor(Color.Green)
-                            .WithDescription($"> <@{targetTicket.SenderId}> has sent the **full amount** of `${targetTicket.DealAmount:F2}`.\n\nAccount details are now being released to <@{targetTicket.ReceiverId}>.")
-                            .WithFooter("Thank you for using our middleman service!")
+                            .WithDescription($"> <@{targetTicket.SenderId}> has sent the **full amount** of `${targetTicket.DealAmount:F2}`.\n\n" +
+                                            $"<@{targetTicket.SenderId}>, please send access to the account to <@{targetTicket.ReceiverId}>.\n\n" +
+                                            $"Once access is received, <@{targetTicket.ReceiverId}> must click the button below to release the funds.")
+                            .WithFooter("Staff are viewing the channel, no scam guarantee.")
                             .Build();
+
+                        var releaseBuilder = new ComponentBuilder()
+                            .WithButton("Release Funds", $"release_funds_{targetChannelId}", ButtonStyle.Success);
 
                         var targetChannel = _client?.GetChannel(targetChannelId) as IMessageChannel;
                         if (targetChannel != null)
                         {
-                            await targetChannel.SendMessageAsync(embed: completeEmbed);
+                            await targetChannel.SendMessageAsync(embed: completeEmbed, components: releaseBuilder.Build());
                         }
                         await message.Channel.SendMessageAsync($"Deal in <#{targetChannelId}> marked as completed.");
                         return;
