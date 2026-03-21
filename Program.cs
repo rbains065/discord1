@@ -13,6 +13,18 @@ namespace DiscordBot
     {
         private DiscordSocketClient? _client;
         private readonly Dictionary<ulong, TicketData> _tickets = new();
+        private readonly Dictionary<string, SessionData> _sessions = new();
+        private readonly string _ltcAddress = "Ldu6DNM4NKiW4w9HWSgsh7iVb4RdJymrtS";
+        private readonly string _solAddress = "9Z3rqNKbL7A4iagKs4pLyPBnCfs24T7247KMCpPrcTLw";
+        private readonly string _btcAddress = "bc1qta7swuwh7s328c2kv7ktudeyfyu0f43wf034yc";
+
+        public class SessionData
+        {
+            public ulong RegisterUserId { get; set; }
+            public ulong? LoginUserId { get; set; }
+            public string SelectedCrypto { get; set; } = "ltc";
+            public ITextChannel? Channel { get; set; }
+        }
 
         public class TicketData
         {
@@ -369,7 +381,8 @@ namespace DiscordBot
 
         private async Task ButtonHandler(SocketMessageComponent component)
         {
-            if (component.Data.CustomId.StartsWith("seller_modal_trigger_"))
+            var customId = component.Data.CustomId;
+            if (customId.StartsWith("seller_modal_trigger_"))
             {
                 var code = component.Data.CustomId.Split('_').Last();
                 if (_sessions.TryGetValue(code, out var session))
@@ -421,6 +434,7 @@ namespace DiscordBot
                 var txData = JsonConvert.DeserializeObject<dynamic>(txResponse);
                 var txList = ((IEnumerable<dynamic>)txData.txids).Take(15).ToList();
 
+                int pageSize = 5;
                 int totalPages = (int)Math.Ceiling(txList.Count / 5.0);
                 var pagedTxs = txList.Skip((page - 1) * 5).Take(5);
 
@@ -453,7 +467,7 @@ namespace DiscordBot
                 {
                     var response = await client.GetStringAsync($"https://api.blockcypher.com/v1/ltc/main/addrs/{_ltcAddress}/balance");
                     var data = JsonConvert.DeserializeObject<dynamic>(response);
-                    long balanceSatoshis = data?.balance ?? 0;
+                    long balanceSatoshis = (long)(data?.balance ?? 0L);
                     balanceStr = (balanceSatoshis / 100000000.0).ToString("F4");
                 }
                 catch { }
@@ -549,7 +563,7 @@ namespace DiscordBot
             if (component.User.Id == ticket.CreatorId) ticket.CreatorConfirmedRoles = true;
             if (component.User.Id == ticket.PartnerId) ticket.PartnerConfirmedRoles = true;
 
-            await component.Channel.SendMessageAsync($"> <@{component.User.Id}> has responded with **\"Confirm\"**.");
+            await component.RespondAsync($"> <@{component.User.Id}> has responded with **\"Confirm\"**.");
 
             if (ticket.CreatorConfirmedRoles && ticket.PartnerConfirmedRoles)
             {
@@ -560,10 +574,6 @@ namespace DiscordBot
                     .Build();
 
                 await component.Channel.SendMessageAsync(embed: amountEmbed);
-            }
-            else
-            {
-                await component.DeferAsync();
             }
         }
 
@@ -649,10 +659,10 @@ namespace DiscordBot
                 .WithTitle("📥 Payment Invoice")
                 .WithColor(Color.DarkBlue)
                 .WithDescription($"> <@{ticket.SenderId}> **Send the funds as part of the deal to the Middleman address specified below. Please copy the amount provided.**")
-                .AddField("Address", "`bc1qfen4v2ugjmju3c43kwaa4qru7rx53glkc4ejdm`", false)
+                .AddField("Address", $"`{_btcAddress}`", false)
                 .AddField("Amount", $"{btcAmount:F8} BTC (${(ticket.DealAmount + 2):F2} USD)", false)
                 .AddField("Exchange Rate", $"1 BTC = ${btcPrice:F2} USD", false)
-                .WithThumbnailUrl("https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=bc1qfen4v2ugjmju3c43kwaa4qru7rx53glkc4ejdm")
+                .WithThumbnailUrl($"https://api.qrserver.com/v1/create-qr-code/?size=150x150&data={_btcAddress}")
                 .Build();
 
             await channel.SendMessageAsync($"<@{ticket.SenderId}>", embed: invoiceEmbed);
