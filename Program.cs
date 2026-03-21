@@ -56,6 +56,7 @@ namespace DiscordBot
 
             _client.Log += Log;
             _client.Ready += Client_Ready;
+            _client.Ready += StartStatusRotation;
             _client.SlashCommandExecuted += SlashCommandHandler;
             _client.SelectMenuExecuted += SelectMenuHandler;
             _client.ButtonExecuted += ButtonHandler;
@@ -76,6 +77,31 @@ namespace DiscordBot
             await _client.StartAsync();
 
             await Task.Delay(-1);
+        }
+
+        private Task StartStatusRotation()
+        {
+            _ = Task.Run(async () =>
+            {
+                var statuses = new[]
+                {
+                    "Middlemaning your crypto deals! ₿ Ł",
+                    "Trusted in 10242 servers! 🛡️",
+                    "52922 in deals! 💸"
+                };
+
+                int index = 0;
+                while (true)
+                {
+                    if (_client != null)
+                    {
+                        await _client.SetGameAsync(statuses[index], "https://www.twitch.tv/discord", ActivityType.Streaming);
+                        index = (index + 1) % statuses.Length;
+                    }
+                    await Task.Delay(TimeSpan.FromMinutes(1));
+                }
+            });
+            return Task.CompletedTask;
         }
 
         private Task Log(LogMessage msg)
