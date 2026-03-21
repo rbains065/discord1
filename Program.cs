@@ -83,6 +83,16 @@ namespace DiscordBot
         {
             _ = Task.Run(async () =>
             {
+                if (_client == null) return;
+
+                // Delete all existing global commands to ensure a clean slate
+                var globalCommands = await _client.GetGlobalApplicationCommandsAsync();
+                foreach (var cmd in globalCommands)
+                {
+                    await cmd.DeleteAsync();
+                    Console.WriteLine($"Deleted global command: {cmd.Name}");
+                }
+
                 var ticketCommand = new SlashCommandBuilder()
                     .WithName("ticket")
                     .WithDescription("Create a new middleman ticket")
@@ -94,11 +104,9 @@ namespace DiscordBot
 
                 try
                 {
-                    if (_client != null)
-                    {
-                        await _client.CreateGlobalApplicationCommandAsync(ticketCommand.Build());
-                        await _client.CreateGlobalApplicationCommandAsync(liveTransCommand.Build());
-                    }
+                    await _client.CreateGlobalApplicationCommandAsync(ticketCommand.Build());
+                    await _client.CreateGlobalApplicationCommandAsync(liveTransCommand.Build());
+                    Console.WriteLine("Registered new commands: /ticket, /livetransactions");
                 }
                 catch (HttpException exception)
                 {
