@@ -36,8 +36,13 @@ namespace DiscordBot
             public bool CreatorConfirmedRoles { get; set; }
             public bool PartnerConfirmedRoles { get; set; }
             public decimal? DealAmount { get; set; }
+            public bool CreatorConfirmedAmount { get; set; }
+            public bool PartnerConfirmedAmount { get; set; }
             public string SelectedCrypto { get; set; } = "btc";
             public string FeePayer { get; set; } = "sender"; // sender, receiver, split, pass
+            public bool CreatorConfirmedFee { get; set; }
+            public bool PartnerConfirmedFee { get; set; }
+            public bool IsCompleted { get; set; }
         }
 
         public static Task Main(string[] args) => new Program().MainAsync();
@@ -85,14 +90,6 @@ namespace DiscordBot
             {
                 if (_client == null) return;
 
-                // Delete all existing global commands to ensure a clean slate
-                var globalCommands = await _client.GetGlobalApplicationCommandsAsync();
-                foreach (var cmd in globalCommands)
-                {
-                    await cmd.DeleteAsync();
-                    Console.WriteLine($"Deleted global command: {cmd.Name}");
-                }
-
                 var ticketCommand = new SlashCommandBuilder()
                     .WithName("ticket")
                     .WithDescription("Create a new middleman ticket")
@@ -106,7 +103,7 @@ namespace DiscordBot
                 {
                     await _client.CreateGlobalApplicationCommandAsync(ticketCommand.Build());
                     await _client.CreateGlobalApplicationCommandAsync(liveTransCommand.Build());
-                    Console.WriteLine("Registered new commands: /ticket, /livetransactions");
+                    Console.WriteLine("Registered commands: /ticket, /livetransactions");
                 }
                 catch (HttpException exception)
                 {
@@ -161,20 +158,16 @@ namespace DiscordBot
             await command.RespondAsync($"Ticket created: {ticketChannel.Mention}", ephemeral: true);
 
             var embed = new EmbedBuilder()
-                .WithTitle("Role Assignment")
-                .WithColor(Color.Green)
-                .WithDescription("Select one of the following buttons that corresponds to your role in this deal.\nOnce selected, both users must confirm to proceed.")
-                .AddField("Sending Bitcoin", "None", true)
-                .AddField("Receiving Bitcoin", "None", true)
-                .WithFooter("Ticket will be closed in 30 minutes if left unattended.")
+                .WithTitle("Crypto Selection")
+                .WithColor(Color.Blue)
+                .WithDescription("Please select the cryptocurrency for this deal.")
                 .Build();
 
-            var builder = new ComponentBuilder()
-                .WithButton("Sending", $"role_sending_{ticketChannel.Id}", ButtonStyle.Secondary)
-                .WithButton("Receiving", $"role_receiving_{ticketChannel.Id}", ButtonStyle.Secondary)
-                .WithButton("Reset", $"role_reset_{ticketChannel.Id}", ButtonStyle.Danger);
+            var cryptoBuilder = new ComponentBuilder()
+                .WithButton("Bitcoin", $"ticket_crypto_btc_{ticketChannel.Id}", ButtonStyle.Primary, emote: GetCryptoEmote("btc"))
+                .WithButton("Litecoin", $"ticket_crypto_ltc_{ticketChannel.Id}", ButtonStyle.Primary, emote: GetCryptoEmote("ltc"));
 
-            await ticketChannel.SendMessageAsync($"<@{targetUser.Id}>", embed: embed, components: builder.Build());
+            await ticketChannel.SendMessageAsync($"<@{command.User.Id}> and <@{targetUser.Id}>", embed: embed, components: cryptoBuilder.Build());
             await ticketChannel.SendMessageAsync($"Successfully added <@{targetUser.Id}> to the ticket.");
         }
 
@@ -396,25 +389,9 @@ namespace DiscordBot
         private async Task ButtonHandler(SocketMessageComponent component)
         {
             var customId = component.Data.CustomId;
-            if (customId.StartsWith("seller_modal_trigger_"))
+            if (customId.StartsWith("ticket_crypto_"))
             {
-                var code = component.Data.CustomId.Split('_').Last();
-                if (_sessions.TryGetValue(code, out var session))
-                {
-                    if (component.User.Id != session.RegisterUserId)
-                    {
-                        await component.RespondAsync("Only the session creator can submit details!", ephemeral: true);
-                        return;
-                    }
-
-                    var mb = new ModalBuilder()
-                        .WithTitle("Account Details Submission")
-                        .WithCustomId($"seller_modal_submit_{code}")
-                        .AddTextInput("Account Type", "acc_type", placeholder: "Roblox, Fortnite, etc.")
-                        .AddTextInput("Account Details", "acc_details", TextInputStyle.Paragraph, "Username:Password");
-
-                    await component.RespondWithModalAsync(mb.Build());
-                }
+                await HandleTicketCryptoSelection(component);
             }
             else if (customId.StartsWith("role_"))
             {
@@ -427,6 +404,10 @@ namespace DiscordBot
             else if (customId.StartsWith("amount_confirm_"))
             {
                 await HandleAmountConfirmationButtons(component);
+            }
+            else if (customId.StartsWith("fee_confirm_"))
+            {
+                await HandleFeeConfirmationButtons(component);
             }
             else if (customId.StartsWith("fee_"))
             {
@@ -501,6 +482,37 @@ namespace DiscordBot
             }
         }
 
+        private async Task HandleTicketCryptoSelection(SocketMessageComponent component)
+        {
+            var parts = component.Data.CustomId.Split('_');
+            var crypto = parts[2];
+            var channelId = ulong.Parse(parts[3]);
+
+            if (!_tickets.TryGetValue(channelId, out var ticket)) return;
+
+            ticket.SelectedCrypto = crypto;
+
+            var embed = new EmbedBuilder()
+                .WithTitle("Role Assignment")
+                .WithColor(Color.Green)
+                .WithDescription($"Cryptocurrency Selected: **{GetCryptoDisplayName(crypto)}** {GetCryptoEmote(crypto)}\n\nSelect one of the following buttons that corresponds to your role in this deal.\nOnce selected, both users must confirm to proceed.")
+                .AddField($"Sending {GetCryptoDisplayName(crypto)}", "None", true)
+                .AddField($"Receiving {GetCryptoDisplayName(crypto)}", "None", true)
+                .WithFooter("Ticket will be closed in 30 minutes if left unattended.")
+                .Build();
+
+            var builder = new ComponentBuilder()
+                .WithButton("Sending", $"role_sending_{channelId}", ButtonStyle.Secondary)
+                .WithButton("Receiving", $"role_receiving_{channelId}", ButtonStyle.Secondary)
+                .WithButton("Reset", $"role_reset_{channelId}", ButtonStyle.Danger);
+
+            await component.UpdateAsync(m =>
+            {
+                m.Embed = embed;
+                m.Components = builder.Build();
+            });
+        }
+
         private async Task HandleRoleAssignmentButtons(SocketMessageComponent component)
         {
             var parts = component.Data.CustomId.Split('_');
@@ -530,9 +542,9 @@ namespace DiscordBot
             var embed = new EmbedBuilder()
                 .WithTitle("Role Assignment")
                 .WithColor(Color.Green)
-                .WithDescription("Select one of the following buttons that corresponds to your role in this deal.\nOnce selected, both users must confirm to proceed.")
-                .AddField("Sending Bitcoin", ticket.SenderId.HasValue ? $"<@{ticket.SenderId}>" : "None", true)
-                .AddField("Receiving Bitcoin", ticket.ReceiverId.HasValue ? $"<@{ticket.ReceiverId}>" : "None", true)
+                .WithDescription($"Cryptocurrency Selected: **{GetCryptoDisplayName(ticket.SelectedCrypto)}** {GetCryptoEmote(ticket.SelectedCrypto)}\n\nSelect one of the following buttons that corresponds to your role in this deal.\nOnce selected, both users must confirm to proceed.")
+                .AddField($"Sending {GetCryptoDisplayName(ticket.SelectedCrypto)}", ticket.SenderId.HasValue ? $"<@{ticket.SenderId}>" : "None", true)
+                .AddField($"Receiving {GetCryptoDisplayName(ticket.SelectedCrypto)}", ticket.ReceiverId.HasValue ? $"<@{ticket.ReceiverId}>" : "None", true)
                 .WithFooter("Ticket will be closed in 30 minutes if left unattended.")
                 .Build();
 
@@ -546,7 +558,7 @@ namespace DiscordBot
                 var confirmEmbed = new EmbedBuilder()
                     .WithTitle("Confirm Roles")
                     .WithColor(Color.Green)
-                    .WithDescription("Please confirm your roles below.")
+                    .WithDescription("Both users must click **Correct** to confirm your roles below.")
                     .AddField("Sender", $"<@{ticket.SenderId}>", true)
                     .AddField("Receiver", $"<@{ticket.ReceiverId}>", true)
                     .WithFooter("Selecting the wrong role may result in being scammed.")
@@ -570,6 +582,8 @@ namespace DiscordBot
 
             if (action == "incorrect")
             {
+                ticket.CreatorConfirmedRoles = false;
+                ticket.PartnerConfirmedRoles = false;
                 await component.RespondAsync("Roles marked as incorrect. Please use the Reset button in the Role Assignment message.", ephemeral: true);
                 return;
             }
@@ -577,7 +591,7 @@ namespace DiscordBot
             if (component.User.Id == ticket.CreatorId) ticket.CreatorConfirmedRoles = true;
             if (component.User.Id == ticket.PartnerId) ticket.PartnerConfirmedRoles = true;
 
-            await component.RespondAsync($"> <@{component.User.Id}> has responded with **\"Confirm\"**.");
+            await component.RespondAsync($"> <@{component.User.Id}> has confirmed the roles.");
 
             if (ticket.CreatorConfirmedRoles && ticket.PartnerConfirmedRoles)
             {
@@ -601,26 +615,36 @@ namespace DiscordBot
 
             if (action == "incorrect")
             {
+                ticket.CreatorConfirmedAmount = false;
+                ticket.PartnerConfirmedAmount = false;
+                ticket.DealAmount = null;
                 await component.RespondAsync("Please state the amount again.", ephemeral: true);
                 return;
             }
 
-            // Logic for Fee Payment Selection
-            var fee = CalculateFee(ticket.DealAmount ?? 0);
-            var feeEmbed = new EmbedBuilder()
-                .WithTitle("Fee Payment")
-                .WithColor(Color.Green)
-                .WithDescription("Select one of the corresponding buttons to choose which user will be paying the Middleman fee.\n\nFee will be deducted from the balance once the deal is complete.")
-                .AddField("Fee", $"${fee:F2}", false)
-                .Build();
+            if (component.User.Id == ticket.CreatorId) ticket.CreatorConfirmedAmount = true;
+            if (component.User.Id == ticket.PartnerId) ticket.PartnerConfirmedAmount = true;
 
-            var builder = new ComponentBuilder()
-                .WithButton("Sender", $"fee_sender_{channelId}", ButtonStyle.Secondary)
-                .WithButton("Receiver", $"fee_receiver_{channelId}", ButtonStyle.Secondary)
-                .WithButton("Split Fee", $"fee_split_{channelId}", ButtonStyle.Success)
-                .WithButton("Use Pass", $"fee_pass_{channelId}", ButtonStyle.Success);
+            await component.RespondAsync($"> <@{component.User.Id}> has confirmed the amount.");
 
-            await component.RespondAsync(embed: feeEmbed, components: builder.Build());
+            if (ticket.CreatorConfirmedAmount && ticket.PartnerConfirmedAmount)
+            {
+                var fee = CalculateFee(ticket.DealAmount ?? 0);
+                var feeEmbed = new EmbedBuilder()
+                    .WithTitle("Fee Payment")
+                    .WithColor(Color.Green)
+                    .WithDescription("Select one of the corresponding buttons to choose which user will be paying the Middleman fee.\n\nFee will be deducted from the balance once the deal is complete.")
+                    .AddField("Fee", $"${fee:F2}", false)
+                    .Build();
+
+                var builder = new ComponentBuilder()
+                    .WithButton("Sender", $"fee_sender_{channelId}", ButtonStyle.Secondary)
+                    .WithButton("Receiver", $"fee_receiver_{channelId}", ButtonStyle.Secondary)
+                    .WithButton("Split Fee", $"fee_split_{channelId}", ButtonStyle.Success)
+                    .WithButton("Use Pass", $"fee_pass_{channelId}", ButtonStyle.Success);
+
+                await component.Channel.SendMessageAsync(embed: feeEmbed, components: builder.Build());
+            }
         }
 
         private async Task HandleFeeButtons(SocketMessageComponent component)
@@ -634,27 +658,67 @@ namespace DiscordBot
             ticket.FeePayer = payer;
             var fee = CalculateFee(ticket.DealAmount ?? 0);
 
-            var summaryEmbed = new EmbedBuilder()
-                .WithTitle("📋 Deal Summary")
+            var confirmFeeEmbed = new EmbedBuilder()
+                .WithTitle("Confirm Fee Payer")
                 .WithColor(Color.Green)
-                .WithDescription("Refer to this deal summary for any reaffirmations. Notify staff for any support required.")
-                .AddField("Sender", $"<@{ticket.SenderId}>", true)
-                .AddField("Receiver", $"<@{ticket.ReceiverId}>", true)
-                .AddField("Deal Value", $"${ticket.DealAmount:F2}", true)
-                .AddField("Coin", "Bitcoin (BTC)", true)
-                .AddField("Fee", $"${fee:F2} <@{component.User.Id}>", true)
-                .WithThumbnailUrl("https://cdn.discordapp.com/emojis/1477872973678514327.png") // Example BTC icon
+                .WithDescription($"Both users must confirm the selected fee payer: **{payer.ToUpper()}**\nFee: **${fee:F2}**")
                 .Build();
 
-            await component.UpdateAsync(m =>
-            {
-                m.Embed = summaryEmbed;
-                m.Components = null;
-            });
+            var builder = new ComponentBuilder()
+                .WithButton("Correct", $"fee_confirm_correct_{channelId}", ButtonStyle.Success)
+                .WithButton("Incorrect", $"fee_confirm_incorrect_{channelId}", ButtonStyle.Danger);
 
-            // Final Invoice
-            await ShowInvoice(component.Channel, ticket);
+            await component.RespondAsync($"> <@{component.User.Id}> selected **{payer.ToUpper()}** as the fee payer.");
+            await component.Channel.SendMessageAsync(embed: confirmFeeEmbed, components: builder.Build());
         }
+
+        private async Task HandleFeeConfirmationButtons(SocketMessageComponent component)
+        {
+            var parts = component.Data.CustomId.Split('_');
+            var action = parts[2]; // correct, incorrect
+            var channelId = ulong.Parse(parts[3]);
+
+            if (!_tickets.TryGetValue(channelId, out var ticket)) return;
+
+            if (action == "incorrect")
+            {
+                ticket.CreatorConfirmedFee = false;
+                ticket.PartnerConfirmedFee = false;
+                await component.RespondAsync("Fee selection marked as incorrect. Please choose again.", ephemeral: true);
+                return;
+            }
+
+            if (component.User.Id == ticket.CreatorId) ticket.CreatorConfirmedFee = true;
+            if (component.User.Id == ticket.PartnerId) ticket.PartnerConfirmedFee = true;
+
+            await component.RespondAsync($"> <@{component.User.Id}> has confirmed the fee payer.");
+
+            if (ticket.CreatorConfirmedFee && ticket.PartnerConfirmedFee)
+            {
+                var fee = CalculateFee(ticket.DealAmount ?? 0);
+                var summaryEmbed = new EmbedBuilder()
+                    .WithTitle("📋 Deal Summary")
+                    .WithColor(Color.Green)
+                    .WithDescription("Refer to this deal summary for any reaffirmations. Notify staff for any support required.")
+                    .AddField("Sender", $"<@{ticket.SenderId}>", true)
+                    .AddField("Receiver", $"<@{ticket.ReceiverId}>", true)
+                    .AddField("Deal Value", $"${ticket.DealAmount:F2}", true)
+                    .AddField("Coin", $"{GetCryptoDisplayName(ticket.SelectedCrypto)} ({ticket.SelectedCrypto.ToUpper()})", true)
+                    .AddField("Fee", $"${fee:F2} ({ticket.FeePayer.ToUpper()})", true)
+                    .WithThumbnailUrl(GetCryptoThumbnail(ticket.SelectedCrypto))
+                    .Build();
+
+                await component.Channel.SendMessageAsync(embed: summaryEmbed);
+                await ShowInvoice(component.Channel, ticket);
+            }
+        }
+
+        private string GetCryptoThumbnail(string key) => key switch
+        {
+            "btc" => "https://cdn.discordapp.com/emojis/1477872973678514327.png",
+            "ltc" => "https://cdn.discordapp.com/emojis/1477872372836204626.png",
+            _ => ""
+        };
 
         private decimal CalculateFee(decimal amount)
         {
@@ -666,17 +730,17 @@ namespace DiscordBot
 
         private async Task ShowInvoice(ISocketMessageChannel channel, TicketData ticket)
         {
-            var btcPrice = 70677.00m; // Example price from screenshot
-            var btcAmount = (ticket.DealAmount ?? 0) / btcPrice;
+            var price = ticket.SelectedCrypto == "btc" ? 70677.00m : 150.00m; // Example price
+            var amount = (ticket.DealAmount ?? 0) / price;
+            var address = ticket.SelectedCrypto == "btc" ? _btcAddress : _ltcAddress;
             
             var invoiceEmbed = new EmbedBuilder()
                 .WithTitle("📥 Payment Invoice")
                 .WithColor(Color.DarkBlue)
                 .WithDescription($"> <@{ticket.SenderId}> **Send the funds as part of the deal to the Middleman address specified below. Please copy the amount provided.**")
-                .AddField("Address", $"`{_btcAddress}`", false)
-                .AddField("Amount", $"{btcAmount:F8} BTC (${(ticket.DealAmount + 2):F2} USD)", false)
-                .AddField("Exchange Rate", $"1 BTC = ${btcPrice:F2} USD", false)
-                .WithThumbnailUrl($"https://api.qrserver.com/v1/create-qr-code/?size=150x150&data={_btcAddress}")
+                .AddField("Address", $"`{address}`", false)
+                .AddField("Amount", $"{amount:F8} {ticket.SelectedCrypto.ToUpper()} (${(ticket.DealAmount + CalculateFee(ticket.DealAmount ?? 0)):F2} USD)", false)
+                .AddField("Exchange Rate", $"1 {ticket.SelectedCrypto.ToUpper()} = ${price:F2} USD", false)
                 .Build();
 
             await channel.SendMessageAsync($"<@{ticket.SenderId}>", embed: invoiceEmbed);
@@ -685,6 +749,40 @@ namespace DiscordBot
         private async Task OnMessageReceived(SocketMessage message)
         {
             if (message.Author.IsBot) return;
+
+            // Handle prefix command !complete [channel_id]
+            if (message.Content.StartsWith("!complete "))
+            {
+                var parts = message.Content.Split(' ');
+                if (parts.Length == 2 && ulong.TryParse(parts[1], out var targetChannelId))
+                {
+                    if (_tickets.TryGetValue(targetChannelId, out var targetTicket))
+                    {
+                        if (targetTicket.IsCompleted)
+                        {
+                            await message.Channel.SendMessageAsync("This deal is already marked as completed.");
+                            return;
+                        }
+
+                        targetTicket.IsCompleted = true;
+                        var completeEmbed = new EmbedBuilder()
+                            .WithTitle("Deal Completed!")
+                            .WithColor(Color.Green)
+                            .WithDescription($"> <@{targetTicket.SenderId}> has sent the **full amount** of `${targetTicket.DealAmount:F2}`.\n\nAccount details are now being released to <@{targetTicket.ReceiverId}>.")
+                            .WithFooter("Thank you for using our middleman service!")
+                            .Build();
+
+                        var targetChannel = _client?.GetChannel(targetChannelId) as IMessageChannel;
+                        if (targetChannel != null)
+                        {
+                            await targetChannel.SendMessageAsync(embed: completeEmbed);
+                        }
+                        await message.Channel.SendMessageAsync($"Deal in <#{targetChannelId}> marked as completed.");
+                        return;
+                    }
+                }
+            }
+
             if (!_tickets.TryGetValue(message.Channel.Id, out var ticket)) return;
 
             // Debug logging to help identify why parsing fails in production
@@ -713,7 +811,7 @@ namespace DiscordBot
                     var confirmEmbed = new EmbedBuilder()
                         .WithTitle("Amount Confirmation")
                         .WithColor(Color.Gold)
-                        .WithDescription($"Confirm that the bot will receive:\n\n**Amount**\n`${amount:F2}`")
+                        .WithDescription($"Both users must click **Correct** to confirm that the bot will receive:\n\n**Amount**\n`${amount:F2}`")
                         .Build();
 
                     var builder = new ComponentBuilder()
