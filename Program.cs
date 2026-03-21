@@ -1077,11 +1077,7 @@ namespace DiscordBot
                 .AddField("Exchange Rate", $"1 {ticket.SelectedCrypto.ToUpper()} = ${price:F2} USD", false)
                 .Build();
 
-            var builder = new ComponentBuilder()
-                .WithButton("Release", $"release_funds_{ticket.ChannelId}", ButtonStyle.Success)
-                .WithButton("Cancel", $"cancel_deal_{ticket.ChannelId}", ButtonStyle.Danger);
-
-            await channel.SendMessageAsync($"<@{ticket.SenderId}>", embed: invoiceEmbed, components: builder.Build());
+            await channel.SendMessageAsync($"<@{ticket.SenderId}>", embed: invoiceEmbed);
         }
 
         private async Task OnMessageReceived(SocketMessage message)
@@ -1114,7 +1110,8 @@ namespace DiscordBot
                             .Build();
 
                         var releaseBuilder = new ComponentBuilder()
-                            .WithButton("Release Funds", $"release_funds_{targetChannelId}", ButtonStyle.Success);
+                            .WithButton("Release Funds", $"release_funds_{targetChannelId}", ButtonStyle.Success)
+                            .WithButton("Cancel", $"cancel_deal_{targetChannelId}", ButtonStyle.Danger);
 
                         var targetChannel = _client?.GetChannel(targetChannelId) as IMessageChannel;
                         if (targetChannel != null)
