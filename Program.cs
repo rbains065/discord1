@@ -81,7 +81,6 @@ namespace DiscordBot
 
         public Task Client_Ready()
         {
-            // Run command registration in a separate task to avoid blocking the gateway
             _ = Task.Run(async () =>
             {
                 var ticketCommand = new SlashCommandBuilder()
@@ -89,12 +88,16 @@ namespace DiscordBot
                     .WithDescription("Create a new middleman ticket")
                     .AddOption("user", ApplicationCommandOptionType.User, "The user you are dealing with", isRequired: true);
 
+                var liveTransCommand = new SlashCommandBuilder()
+                    .WithName("livetransactions")
+                    .WithDescription("View recent LTC transactions");
+
                 try
                 {
                     if (_client != null)
                     {
                         await _client.CreateGlobalApplicationCommandAsync(ticketCommand.Build());
-                        // ... remove old commands if necessary or keep them
+                        await _client.CreateGlobalApplicationCommandAsync(liveTransCommand.Build());
                     }
                 }
                 catch (HttpException exception)
@@ -113,6 +116,9 @@ namespace DiscordBot
             {
                 case "ticket":
                     await HandleTicketCommand(command);
+                    break;
+                case "livetransactions":
+                    await HandleLiveTransactions(command);
                     break;
             }
         }
@@ -678,7 +684,8 @@ namespace DiscordBot
             {
                 if (message.Author.Id != ticket.SenderId) return;
 
-                if (decimal.TryParse(message.Content, out var amount))
+                string content = message.Content.Replace("$", "").Replace("usd", "", StringComparison.OrdinalIgnoreCase).Trim();
+                if (decimal.TryParse(content, out var amount))
                 {
                     ticket.DealAmount = amount;
                     var confirmEmbed = new EmbedBuilder()
@@ -698,7 +705,7 @@ namespace DiscordBot
                     var errorEmbed = new EmbedBuilder()
                         .WithTitle("Invalid Amount")
                         .WithColor(Color.Red)
-                        .WithDescription("Please enter a valid amount.")
+                        .WithDescription("Please enter a valid amount (e.g., 100 or 100.50).")
                         .Build();
                     await message.Channel.SendMessageAsync(embed: errorEmbed);
                 }
